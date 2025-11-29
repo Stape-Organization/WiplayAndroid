@@ -5,8 +5,8 @@ plugins {
 android {
 
     signingConfigs {
-        debug {
-            storeFile file('/Users/cristian/Documents/Keystores/wiplay')
+        totpadel {
+            storeFile file('/Users/edgarcasals/Documents/Keystores/totpadel')
             storePassword 'Ccm_0123456789'
             keyAlias 'wiplay'
             keyPassword 'Ccm_0123456789'
@@ -30,8 +30,8 @@ android {
         totpadel {
             dimension "versionType"
             applicationId "totpadel.cat.totpadel"
-            versionName "5.0"
-            versionCode 101
+            versionName "1.0"
+            versionCode 102
             resValue "string", "app_name", "Totpadel"
             resValue "string", "app_url", "https://totpadel.cat"
             resValue "string", "app_intent", "totpadel.cat"
@@ -42,8 +42,8 @@ android {
         wiplaypadel {
             dimension "versionType"
             applicationId "es.stape.wiplaypadel"
-            versionName "1.0"
-            versionCode 1
+            versionName "1.1"
+            versionCode 102
             resValue "string", "app_name", "Wiplay Padel"
             resValue "string", "app_url", "https://wiplaypadel.com"
             resValue "string", "app_intent", "wiplaypadel.com"
@@ -108,7 +108,7 @@ android {
             applicationId "com.wiplay.wiplayandroid.v2"
             versionName "1.0"
             resValue "string", "app_name", "Test"
-            resValue "string", "app_url", "http://83.41.146.166:81"
+            resValue "string", "app_url", "http://192.168.1.137:30001"
             resValue "string", "app_intent", "summapadel.com"
             resValue "string", "app_onesignal_id", "c8249ab5-7443-40dc-ac19-ff8d373a52b7"
             resValue "string", "principal_color", "#252525"
