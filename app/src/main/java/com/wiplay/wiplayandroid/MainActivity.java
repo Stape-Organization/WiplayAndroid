@@ -7,10 +7,12 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import android.animation.ObjectAnimator;
+import android.app.Activity;
 import android.app.DownloadManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -34,6 +36,7 @@ import android.webkit.GeolocationPermissions;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -64,6 +67,12 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
     private static final int STORAGE_PERMISSION_CODE = 123;
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private final static int FILECHOOSER_RESULTCODE=1;
+
+    // This is the callback that tells the WebView which file was selected
+    private ValueCallback<Uri[]> mFilePathCallback;
+
+    // This is just a unique ID number to identify the photo picker result
+    private final static int REQUEST_CODE_FILE_PICKER = 1001;
 
     private String URL;
     private String ONESIGNAL_ID;
@@ -114,7 +123,32 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         });
     }
 
+    private void handleIncomingDeepLink(Intent intent) {
+        if (intent == null) return;
 
+        Uri data = intent.getData();
+        if (Intent.ACTION_VIEW.equals(intent.getAction()) && data != null) {
+            String incomingUrl = data.toString();
+            Log.i("DeepLink", "Incoming URL: " + incomingUrl);
+
+            // Optional: if your site sometimes sends bare domain without webapp, map it:
+            // if (incomingUrl.startsWith("https://wiplaypadel.com")) {
+            //     incomingUrl = incomingUrl.replace("https://wiplaypadel.com", "https://webapp.wiplaypadel.com");
+            // }
+
+            if (mWebView != null) {
+                mWebView.loadUrl(incomingUrl);
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Log.i("DeepLink", "onNewIntent action=" + intent.getAction() + " data=" + intent.getData());
+        setIntent(intent);
+        handleIncomingDeepLink(intent);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -126,6 +160,11 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         ONESIGNAL_ID = getString(R.string.app_onesignal_id);
 
         setContentView(R.layout.activity_main);
+
+        //ECM 09/01/2026
+        //Intent desde fuera
+        Log.i("DeepLink", "onCreate action=" + getIntent().getAction() + " data=" + getIntent().getData());
+        handleIncomingDeepLink(getIntent());
 
         // Incorporamos Push con OneSignal
         OneSignal.setLogLevel(OneSignal.LOG_LEVEL.VERBOSE, OneSignal.LOG_LEVEL.NONE);
@@ -325,9 +364,29 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
                                              FileChooserParams fileChooserParams) {
-                mUploadMessage = filePathCallback;
-                requestStoragePermission();
+                if (mFilePathCallback != null) {
+                    mFilePathCallback.onReceiveValue(null);
+                }
+                mFilePathCallback = filePathCallback;
 
+                // Create a generic GET_CONTENT intent
+                // This allows the user to pick from Gallery, Photos, Downloads, or File Manager
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("image/*"); // Allows all image types
+
+                // If the website allows multiple files
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2
+                        && fileChooserParams.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                }
+
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Select Picture"), REQUEST_CODE_FILE_PICKER);
+                } catch (ActivityNotFoundException e) {
+                    mFilePathCallback = null;
+                    return false;
+                }
                 return true;
             }
 
@@ -341,30 +400,34 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         });
         mWebView.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 cargando.setVisibility(View.VISIBLE);
                 progressBar.setVisibility(View.VISIBLE);
                 progressView.setVisibility(View.VISIBLE);
+                Uri uri = request.getUrl();
+                String url = uri.toString();
+                //Log
+                Log.i("UrlLoading","uri " + uri + " url " + url);
+
                 if (url.startsWith("https://accounts.google.com")) {
                     return false;
                 } else if (url.startsWith("http:") || url.startsWith("https:")) {
                     return false;
-                } else if (url.startsWith("whatsapp://")) {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    intent.setPackage("com.whatsapp");
-                    try {
-                        startActivity(intent);
-                        if (mWebView.canGoBack()) {
-                            mWebView.goBack();
+                } else if (url.startsWith("whatsapp://")) { // Handle whatsapp:// links robustly
+                        // Try to extract text param if present and redirect to wa.me
+                        String text = uri.getQueryParameter("text");
+                        if (text == null) text = "";  // avoid nulls
+
+                        Uri wa = Uri.parse("https://wa.me/?text=" + Uri.encode(text));
+
+                        Intent i = new Intent(Intent.ACTION_VIEW, wa);
+                        try {
+                            startActivity(i);
+                        } catch (Exception e) {
+                            Toast.makeText(getApplicationContext(), "Unable to open WhatsApp share.", Toast.LENGTH_LONG).show();
                         }
-                    } catch (ActivityNotFoundException e) {
-                        Toast.makeText(MainActivity.this, "WhatsApp not installed.", Toast.LENGTH_LONG).show();
-                        if (mWebView.canGoBack()) {
-                            mWebView.goBack();
-                        }
+                        return true;
                     }
-                    return true;
-                }
 
                 // Otherwise allow the OS to handle things like tel, mailto, etc.
                 try {
@@ -416,17 +479,34 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
-        super.onActivityResult(requestCode, resultCode, intent);
-        if (requestCode == FILECHOOSER_RESULTCODE) {
-            if (null == mUploadMessage) return;
-            Uri result = intent == null || resultCode != RESULT_OK ? null : intent.getData();
-            if (result == null) {
-                mUploadMessage.onReceiveValue(null);
-            } else {
-                mUploadMessage.onReceiveValue(new Uri[]{result});
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_CODE_FILE_PICKER) {
+            if (mFilePathCallback == null) return;
+
+            Uri[] results = null;
+
+            // Check if the response is valid
+            if (resultCode == Activity.RESULT_OK) {
+                if (data != null) {
+                    String dataString = data.getDataString();
+                    ClipData clipData = data.getClipData();
+
+                    if (clipData != null) {
+                        results = new Uri[clipData.getItemCount()];
+                        for (int i = 0; i < clipData.getItemCount(); i++) {
+                            results[i] = clipData.getItemAt(i).getUri();
+                        }
+                    } else if (dataString != null) {
+                        results = new Uri[]{Uri.parse(dataString)};
+                    }
+                }
             }
-            mUploadMessage = null;
+
+            // Send the result to the WebView
+            mFilePathCallback.onReceiveValue(results);
+            mFilePathCallback = null; // Reset it
         }
     }
 

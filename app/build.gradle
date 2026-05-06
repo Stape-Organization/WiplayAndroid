@@ -42,11 +42,11 @@ android {
         wiplaypadel {
             dimension "versionType"
             applicationId "es.stape.wiplaypadel"
-            versionName "1.1"
-            versionCode 102
+            versionName "1.2"
+            versionCode 103
             resValue "string", "app_name", "Wiplay Padel"
-            resValue "string", "app_url", "https://wiplaypadel.com"
-            resValue "string", "app_intent", "wiplaypadel.com"
+            resValue "string", "app_url", "https://webapp.wiplaypadel.com"
+            resValue "string", "app_intent", "webapp.wiplaypadel.com"
             resValue "string", "app_onesignal_id", "d9dc81ca-1d43-4d97-a735-58ccef58940b"
             resValue "string", "principal_color", "#252525"
             resValue "string", "secondary_color", "#EAF02C"
@@ -107,9 +107,9 @@ android {
             dimension "versionType"
             applicationId "com.wiplay.wiplayandroid.v2"
             versionName "1.0"
-            resValue "string", "app_name", "Test"
+            resValue "string", "app_name", "Localhost"
             resValue "string", "app_url", "http://192.168.1.137:30001"
-            resValue "string", "app_intent", "summapadel.com"
+            resValue "string", "app_intent", "webapp.wiplaypadel.com"
             resValue "string", "app_onesignal_id", "c8249ab5-7443-40dc-ac19-ff8d373a52b7"
             resValue "string", "principal_color", "#252525"
             resValue "string", "secondary_color", "#EAF02C"
