@@ -114,8 +114,9 @@ android {
         evenpadel {
             dimension "versionType"
             applicationId "es.stape.evenpadel"
-            versionCode 1
-            versionName "1.1"
+            //Play tiene publicados el 1 y el 2: el siguiente libre es el 3
+            versionCode 3
+            versionName "2.1"
             resValue "string", "app_name", "Even Padel Tour"
             resValue "string", "app_url", "https://evenpadel.com/"
             resValue "string", "app_intent", "evenpadel.com"
