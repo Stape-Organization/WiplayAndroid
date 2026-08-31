@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Credenciales de firma (nunca al repositorio)
+keystore.properties
+*.jks
+*.keystore

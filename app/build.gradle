@@ -2,14 +2,35 @@ plugins {
     id 'com.android.application'
 }
 
+// Credenciales de firma FUERA del repositorio.
+// En local: keystore.properties en la raiz del proyecto (esta en .gitignore).
+// En CI: variables de entorno KEYSTORE_FILE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+def firma = [
+        storeFile    : keystoreProperties['storeFile']     ?: System.getenv('KEYSTORE_FILE'),
+        storePassword: keystoreProperties['storePassword'] ?: System.getenv('KEYSTORE_PASSWORD'),
+        keyAlias     : keystoreProperties['keyAlias']      ?: System.getenv('KEY_ALIAS'),
+        keyPassword  : keystoreProperties['keyPassword']   ?: System.getenv('KEY_PASSWORD')
+]
+def hayFirma = firma.storeFile != null && file(firma.storeFile).exists()
+if (!hayFirma) {
+    logger.warn("AVISO: sin keystore configurado (keystore.properties o variables de entorno). Se compilara sin firmar.")
+}
+
 android {
 
     signingConfigs {
         debug {
-            storeFile file('/Users/cristian/Documents/Keystores/wiplay')
-            storePassword 'Ccm_0123456789'
-            keyAlias 'wiplay'
-            keyPassword 'Ccm_0123456789'
+            if (hayFirma) {
+                storeFile file(firma.storeFile)
+                storePassword firma.storePassword
+                keyAlias firma.keyAlias
+                keyPassword firma.keyPassword
+            }
         }
     }
     namespace 'com.wiplay.wiplayandroid'
@@ -120,7 +141,8 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            //Sin keystore (por ejemplo en un PR de un fork) se genera sin firmar en vez de romper el build
+            signingConfig hayFirma ? signingConfigs.debug : null
         }
     }
     compileOptions {
