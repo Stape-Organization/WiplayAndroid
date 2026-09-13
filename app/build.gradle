@@ -2,34 +2,61 @@ plugins {
     id 'com.android.application'
 }
 
-// Credenciales de firma FUERA del repositorio.
-// En local: keystore.properties en la raiz del proyecto (esta en .gitignore).
-// En CI: variables de entorno KEYSTORE_FILE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD.
+// Credenciales de firma FUERA del repositorio, y UNA POR FLAVOR: cada app esta publicada
+// con su propio keystore (Evenpadel va con "stapeKey", Wiplay con "wiplay", etc.), asi que
+// firmarlas todas con la misma clave hace que Google Play rechace el bundle.
+//
+// Se resuelve en este orden, de mas concreto a mas generico:
+//   1. keystore.properties -> "<flavor>.storeFile", "<flavor>.storePassword", ...
+//   2. variables de entorno -> "<FLAVOR>_KEYSTORE_FILE", "<FLAVOR>_KEYSTORE_PASSWORD", ...
+//   3. keystore.properties -> "storeFile", "storePassword", ...        (fallback comun)
+//   4. variables de entorno -> "KEYSTORE_FILE", "KEYSTORE_PASSWORD", ... (fallback comun)
+//
+// Si un flavor no tiene keystore disponible no se le asigna firma: el debug usa la clave de
+// depuracion por defecto de Android y el release sale sin firmar, en vez de romper el build.
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
-def firma = [
-        storeFile    : keystoreProperties['storeFile']     ?: System.getenv('KEYSTORE_FILE'),
-        storePassword: keystoreProperties['storePassword'] ?: System.getenv('KEYSTORE_PASSWORD'),
-        keyAlias     : keystoreProperties['keyAlias']      ?: System.getenv('KEY_ALIAS'),
-        keyPassword  : keystoreProperties['keyPassword']   ?: System.getenv('KEY_PASSWORD')
-]
-def hayFirma = firma.storeFile != null && file(firma.storeFile).exists()
-if (!hayFirma) {
-    logger.warn("AVISO: sin keystore configurado (keystore.properties o variables de entorno). Se compilara sin firmar.")
+
+ext.FLAVORS_CON_FIRMA = ['totpadel', 'wiplaypadel', 'indoorpadel7', 'summapadel', 'pickleball', 'evenpadel', 'local']
+
+ext.datosFirma = { String flavor ->
+    def buscar = { String propiedad, String variable ->
+        keystoreProperties["${flavor}.${propiedad}"] ?:
+                System.getenv("${flavor.toUpperCase()}_${variable}") ?:
+                        keystoreProperties[propiedad] ?:
+                                System.getenv(variable)
+    }
+    [
+            storeFile    : buscar('storeFile', 'KEYSTORE_FILE'),
+            storePassword: buscar('storePassword', 'KEYSTORE_PASSWORD'),
+            keyAlias     : buscar('keyAlias', 'KEY_ALIAS'),
+            keyPassword  : buscar('keyPassword', 'KEY_PASSWORD')
+    ]
+}
+
+ext.hayFirmaPara = { String flavor ->
+    def d = datosFirma(flavor)
+    d.storeFile != null && file(d.storeFile).exists()
 }
 
 android {
 
     signingConfigs {
-        debug {
-            if (hayFirma) {
-                storeFile file(firma.storeFile)
-                storePassword firma.storePassword
-                keyAlias firma.keyAlias
-                keyPassword firma.keyPassword
+        FLAVORS_CON_FIRMA.each { flavor ->
+            if (hayFirmaPara(flavor)) {
+                def d = datosFirma(flavor)
+                create(flavor) {
+                    storeFile file(d.storeFile)
+                    storePassword d.storePassword
+                    keyAlias d.keyAlias
+                    keyPassword d.keyPassword
+                }
+                logger.lifecycle("Firma configurada para el flavor ${flavor} (${d.keyAlias})")
+            } else {
+                logger.warn("AVISO: sin keystore para el flavor ${flavor}: se compilara sin firmar")
             }
         }
     }
@@ -50,6 +77,7 @@ android {
     productFlavors {
         totpadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("totpadel")
             applicationId "totpadel.cat.totpadel"
             versionName "5.0"
             versionCode 101
@@ -62,6 +90,7 @@ android {
         }
         wiplaypadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("wiplaypadel")
             applicationId "es.stape.wiplaypadel"
             versionName "1.0"
             versionCode 1
@@ -74,6 +103,7 @@ android {
         }
         indoorpadel7 {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("indoorpadel7")
             applicationId "es.stape.indoorpadel7"
             versionName "2.0"
             versionCode 2
@@ -87,6 +117,7 @@ android {
 
         summapadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("summapadel")
             applicationId "es.stape.easypadel.summapadel"
             versionName "2.0"
             versionCode 2
@@ -100,6 +131,7 @@ android {
 
         pickleball {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("pickleball")
             applicationId "es.stape.easypadel.pickleball"
             versionName "2"
             versionCode 2
@@ -113,6 +145,7 @@ android {
 
         evenpadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("evenpadel")
             applicationId "es.stape.evenpadel"
             //Play tiene publicados el 1 y el 2: el siguiente libre es el 3
             versionCode 3
@@ -127,6 +160,7 @@ android {
 
         local {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("local")
             applicationId "com.wiplay.wiplayandroid.v2"
             versionName "1.0"
             resValue "string", "app_name", "Test"
@@ -142,8 +176,8 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            //Sin keystore (por ejemplo en un PR de un fork) se genera sin firmar en vez de romper el build
-            signingConfig hayFirma ? signingConfigs.debug : null
+            //La firma la pone cada flavor (ver productFlavors): aqui no se fija ninguna,
+            //porque lo que se declare en el buildType tiene prioridad sobre la del flavor.
         }
     }
     compileOptions {

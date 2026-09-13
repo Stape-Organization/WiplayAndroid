@@ -3,22 +3,37 @@
 El workflow `.github/workflows/android.yml` compila en cada push a `main` y en cada PR, y sube
 los APK/AAB como artefactos. Tambien se puede lanzar a mano ("Run workflow") eligiendo flavor.
 
-## Firma
+## Firma: una clave POR APP
 
-Las credenciales YA NO estan en `app/build.gradle`. Se leen, por este orden:
+Cada app esta publicada en Play con su propio keystore. Si se firma con otro, Play rechaza el
+bundle con "The Android App Bundle was signed with the wrong key".
 
-1. `keystore.properties` en la raiz del proyecto (uso local, esta en `.gitignore`).
-2. Variables de entorno `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` (CI).
+| Flavor | Keystore | Alias | SHA1 del certificado |
+|---|---|---|---|
+| evenpadel | stapeKey | stape | 9F:41:39:86:08:85:35:E5:DD:75:89:50:BA:60:F7:FB:C8:66:BD:53 |
+| resto | wiplay | wiplay | E9:FC:5B:AD:47:51:1B:A9:A6:9F:8B:A3:DE:89:32:2D:9C:CE:1B:9A |
 
-Si no hay ninguna de las dos, el build sigue adelante y genera un binario **sin firmar**
-en vez de romperse.
+`build.gradle` resuelve la firma de cada flavor en este orden:
+
+1. `keystore.properties` -> `<flavor>.storeFile`, `<flavor>.storePassword`, ...
+2. Entorno -> `<FLAVOR>_KEYSTORE_FILE`, `<FLAVOR>_KEYSTORE_PASSWORD`, `<FLAVOR>_KEY_ALIAS`, `<FLAVOR>_KEY_PASSWORD`
+3. `keystore.properties` -> `storeFile`, `storePassword`, ... (fallback comun)
+4. Entorno -> `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, ... (fallback comun)
+
+Si un flavor no tiene clave, su debug usa la de depuracion por defecto y su release sale sin
+firmar; el build no se rompe.
 
 ### keystore.properties (local)
 
 ```properties
-storeFile=/ruta/al/keystore
+evenpadel.storeFile=/ruta/a/stapeKey
+evenpadel.storePassword=...
+evenpadel.keyAlias=stape
+evenpadel.keyPassword=...
+
+storeFile=/ruta/a/wiplay
 storePassword=...
-keyAlias=...
+keyAlias=wiplay
 keyPassword=...
 ```
 
@@ -28,12 +43,17 @@ En *Settings > Secrets and variables > Actions*:
 
 | Secret | Contenido |
 |---|---|
-| `ANDROID_KEYSTORE_BASE64` | El keystore codificado: `base64 -i /ruta/al/keystore \| pbcopy` |
-| `ANDROID_KEYSTORE_PASSWORD` | Contrasena del almacen |
-| `ANDROID_KEY_ALIAS` | Alias de la clave |
-| `ANDROID_KEY_PASSWORD` | Contrasena de la clave |
+| `ANDROID_KEYSTORE_BASE64` | keystore comun (`wiplay`) en base64: `base64 -i /ruta/al/keystore \| pbcopy` |
+| `ANDROID_KEYSTORE_PASSWORD` | Contrasena del almacen comun |
+| `ANDROID_KEY_ALIAS` | Alias de la clave comun |
+| `ANDROID_KEY_PASSWORD` | Contrasena de la clave comun |
+| `ANDROID_KEYSTORE_BASE64_EVENPADEL` | keystore `stapeKey` en base64 |
+| `ANDROID_KEYSTORE_PASSWORD_EVENPADEL` | Contrasena del almacen de Evenpadel |
+| `ANDROID_KEY_ALIAS_EVENPADEL` | `stape` |
+| `ANDROID_KEY_PASSWORD_EVENPADEL` | Contrasena de la clave de Evenpadel |
 
-Sin `ANDROID_KEYSTORE_BASE64` el workflow avisa y compila sin firmar; el resto de pasos siguen.
+Para anadir otra app con clave propia: crear sus cuatro secrets `..._<FLAVOR>` y anadir el flavor
+al `case` del paso "Restaurar keystores" del workflow.
 
 ## Publicar en Play
 

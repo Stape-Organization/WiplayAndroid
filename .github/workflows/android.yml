@@ -40,28 +40,65 @@ jobs:
       - name: Cachear Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # El keystore no vive en el repositorio: llega como secret en base64.
-      # Sin el secret el job sigue adelante y compila sin firmar (util en PRs de forks).
-      - name: Restaurar keystore
+      # Los keystores no viven en el repositorio: llegan como secrets en base64.
+      # Cada app esta firmada con una clave distinta, asi que ademas del keystore generico
+      # se admite uno especifico por flavor. build.gradle busca primero el del flavor
+      # (<FLAVOR>_KEYSTORE_*) y si no existe cae al generico (KEYSTORE_*).
+      - name: Restaurar keystores
         id: keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          FLAVOR: ${{ github.event.inputs.flavor || 'evenpadel' }}
+          GEN_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          GEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EVEN_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64_EVENPADEL }}
+          EVEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_EVENPADEL }}
+          EVEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_EVENPADEL }}
+          EVEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_EVENPADEL }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "hay_firma=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Sin ANDROID_KEYSTORE_BASE64: se compilara sin firmar"
+          hay_flavor=false
+
+          if [ -n "$GEN_B64" ]; then
+            echo "$GEN_B64" | base64 --decode > "${{ runner.temp }}/generico.jks"
+            {
+              echo "KEYSTORE_FILE=${{ runner.temp }}/generico.jks"
+              echo "KEYSTORE_PASSWORD=$GEN_PASS"
+              echo "KEY_ALIAS=$GEN_ALIAS"
+              echo "KEY_PASSWORD=$GEN_KEYPASS"
+            } >> "$GITHUB_ENV"
           else
-            echo "$KEYSTORE_BASE64" | base64 --decode > "${{ runner.temp }}/keystore.jks"
+            echo "::warning::Sin ANDROID_KEYSTORE_BASE64: los flavors sin clave propia iran sin firmar"
+          fi
+
+          case "$FLAVOR" in
+            evenpadel) B64="$EVEN_B64"; PASS="$EVEN_PASS"; ALIAS="$EVEN_ALIAS"; KPASS="$EVEN_KEYPASS" ;;
+            *)         B64=""; PASS=""; ALIAS=""; KPASS="" ;;
+          esac
+
+          if [ -n "$B64" ]; then
+            PREFIJO="$(echo "$FLAVOR" | tr '[:lower:]' '[:upper:]')"
+            echo "$B64" | base64 --decode > "${{ runner.temp }}/${FLAVOR}.jks"
+            {
+              echo "${PREFIJO}_KEYSTORE_FILE=${{ runner.temp }}/${FLAVOR}.jks"
+              echo "${PREFIJO}_KEYSTORE_PASSWORD=$PASS"
+              echo "${PREFIJO}_KEY_ALIAS=$ALIAS"
+              echo "${PREFIJO}_KEY_PASSWORD=$KPASS"
+            } >> "$GITHUB_ENV"
+            hay_flavor=true
+            echo "Keystore propio cargado para el flavor $FLAVOR"
+          else
+            echo "::notice::El flavor $FLAVOR no tiene keystore propio: se usara el generico"
+          fi
+
+          if [ -n "$GEN_B64" ] || [ "$hay_flavor" = true ]; then
             echo "hay_firma=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay_firma=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Compilar debug (todos los flavors)
         run: ./gradlew assembleDebug --stacktrace
-        env:
-          KEYSTORE_FILE: ${{ runner.temp }}/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Generar AAB de release
         if: steps.keystore.outputs.hay_firma == 'true'
@@ -69,11 +106,6 @@ jobs:
           FLAVOR="${{ github.event.inputs.flavor || 'evenpadel' }}"
           CAP="$(echo "${FLAVOR:0:1}" | tr '[:lower:]' '[:upper:]')${FLAVOR:1}"
           ./gradlew "bundle${CAP}Release" --stacktrace
-        env:
-          KEYSTORE_FILE: ${{ runner.temp }}/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       # Solo se sube cuando se lanza a mano marcando la casilla: un push a main NO publica nada.
       - name: Resolver datos de la subida
@@ -114,6 +146,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Borrar keystore
+      - name: Borrar keystores
         if: always()
-        run: rm -f "${{ runner.temp }}/keystore.jks"
+        run: rm -f "${{ runner.temp }}"/*.jks
