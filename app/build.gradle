@@ -147,8 +147,8 @@ android {
             dimension "versionType"
             signingConfig signingConfigs.findByName("evenpadel")
             applicationId "es.stape.evenpadel"
-            //Play tiene publicados el 1 y el 2: el siguiente libre es el 3
-            versionCode 3
+            //En Play estan el 1, el 2 y el 3 (este ultimo en pruebas internas)
+            versionCode 4
             versionName "2.1"
             resValue "string", "app_name", "Even Padel Tour"
             resValue "string", "app_url", "https://evenpadel.com/"

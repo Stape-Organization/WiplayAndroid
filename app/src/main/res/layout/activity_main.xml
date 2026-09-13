@@ -33,11 +33,18 @@
         android:layout_height="match_parent"
         android:background="#CC000000" />
 
+    <!--
+      Antes usaba wrap_content sobre el mipmap: se dibujaba al tamano nativo del icono
+      (~192px), que en pantallas modernas se ve diminuto. Ahora tamano fijo y el recurso
+      logo_splash, que cada flavor puede sobrescribir con su propia version.
+    -->
     <ImageView
         android:id="@+id/logo"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:src="@mipmap/ic_launcher_round"
+        android:layout_width="180dp"
+        android:layout_height="180dp"
+        android:adjustViewBounds="true"
+        android:scaleType="fitCenter"
+        android:src="@drawable/logo_splash"
         android:contentDescription="@string/app_name"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
