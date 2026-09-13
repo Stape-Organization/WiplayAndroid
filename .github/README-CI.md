@@ -37,8 +37,23 @@ Sin `ANDROID_KEYSTORE_BASE64` el workflow avisa y compila sin firmar; el resto d
 
 ## Publicar en Play
 
-El workflow **no publica**: genera el AAB y lo deja como artefacto. Para automatizar la subida
-haria falta una cuenta de servicio de Google Play y anadir un paso con `r0adkll/upload-google-play`.
+La subida NO ocurre en los push: solo cuando se lanza el workflow a mano
+(*Actions > Android > Run workflow*) marcando **subir_a_play**, eligiendo flavor y canal
+(`internal` por defecto).
+
+Usa la cuenta de servicio `play-publisher-ci@evenpadel-4ea6b.iam.gserviceaccount.com`, invitada en
+Play Console con permiso sobre la app. Su clave JSON esta en el secret `PLAY_SERVICE_ACCOUNT_JSON`.
+
+| Flavor | applicationId |
+|---|---|
+| evenpadel | es.stape.evenpadel |
+| wiplaypadel | es.stape.wiplaypadel |
+| totpadel | totpadel.cat.totpadel |
+| summapadel | es.stape.easypadel.summapadel |
+| indoorpadel7 | es.stape.indoorpadel7 |
+| pickleball | es.stape.easypadel.pickleball |
+
+Para publicar en otro canal hay que dar tambien ese permiso a la cuenta de servicio en Play Console.
 
 ## Antes de cada release
 

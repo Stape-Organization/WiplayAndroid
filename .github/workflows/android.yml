@@ -12,6 +12,15 @@ on:
         description: "Flavor a compilar en release (evenpadel, wiplaypadel, totpadel, summapadel, indoorpadel7)"
         required: false
         default: evenpadel
+      subir_a_play:
+        description: "Subir el AAB al canal de pruebas internas de Google Play"
+        type: boolean
+        required: false
+        default: false
+      track:
+        description: "Canal de Play al que subir (internal, alpha, beta, production)"
+        required: false
+        default: internal
 
 jobs:
   build:
@@ -65,6 +74,34 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      # Solo se sube cuando se lanza a mano marcando la casilla: un push a main NO publica nada.
+      - name: Resolver datos de la subida
+        id: play
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.subir_a_play == 'true' }}
+        run: |
+          FLAVOR="${{ github.event.inputs.flavor || 'evenpadel' }}"
+          case "$FLAVOR" in
+            evenpadel)    PKG="es.stape.evenpadel" ;;
+            wiplaypadel)  PKG="es.stape.wiplaypadel" ;;
+            totpadel)     PKG="totpadel.cat.totpadel" ;;
+            summapadel)   PKG="es.stape.easypadel.summapadel" ;;
+            indoorpadel7) PKG="es.stape.indoorpadel7" ;;
+            pickleball)   PKG="es.stape.easypadel.pickleball" ;;
+            *) echo "::error::Flavor sin applicationId conocido: $FLAVOR"; exit 1 ;;
+          esac
+          echo "package=$PKG" >> "$GITHUB_OUTPUT"
+          echo "aab=app/build/outputs/bundle/${FLAVOR}Release/app-${FLAVOR}-release.aab" >> "$GITHUB_OUTPUT"
+
+      - name: Subir a Google Play
+        if: ${{ steps.play.conclusion == 'success' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ steps.play.outputs.package }}
+          releaseFiles: ${{ steps.play.outputs.aab }}
+          track: ${{ github.event.inputs.track || 'internal' }}
+          status: completed
 
       - name: Publicar artefactos
         uses: actions/upload-artifact@v4
