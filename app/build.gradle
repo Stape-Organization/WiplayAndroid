@@ -61,12 +61,12 @@ android {
         }
     }
     namespace 'com.wiplay.wiplayandroid'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.wiplay.wiplayandroid"
         minSdk 21
-        setTargetSdk(35)
+        setTargetSdk(36)
         versionCode 1
         versionName "1.0"
 
