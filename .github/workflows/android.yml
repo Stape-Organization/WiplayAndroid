@@ -9,18 +9,32 @@ on:
   workflow_dispatch:
     inputs:
       flavor:
-        description: "Flavor a compilar en release (evenpadel, wiplaypadel, totpadel, summapadel, indoorpadel7)"
-        required: false
+        description: "App a compilar y publicar"
+        type: choice
+        required: true
         default: evenpadel
+        options:
+          - evenpadel
+          - wiplaypadel
+          - summapadel
+          - totpadel
+          - indoorpadel7
+          - pickleball
       subir_a_play:
         description: "Subir el AAB al canal de pruebas internas de Google Play"
         type: boolean
         required: false
         default: false
       track:
-        description: "Canal de Play al que subir (internal, alpha, beta, production)"
-        required: false
+        description: "Canal de Play al que subir"
+        type: choice
+        required: true
         default: internal
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
 
 jobs:
   build:
@@ -56,6 +70,14 @@ jobs:
           EVEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_EVENPADEL }}
           EVEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_EVENPADEL }}
           EVEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_EVENPADEL }}
+          WIPLAY_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64_WIPLAYPADEL }}
+          WIPLAY_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_WIPLAYPADEL }}
+          WIPLAY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_WIPLAYPADEL }}
+          WIPLAY_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_WIPLAYPADEL }}
+          SUMMA_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64_SUMMAPADEL }}
+          SUMMA_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_SUMMAPADEL }}
+          SUMMA_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_SUMMAPADEL }}
+          SUMMA_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_SUMMAPADEL }}
         run: |
           hay_flavor=false
 
@@ -72,8 +94,10 @@ jobs:
           fi
 
           case "$FLAVOR" in
-            evenpadel) B64="$EVEN_B64"; PASS="$EVEN_PASS"; ALIAS="$EVEN_ALIAS"; KPASS="$EVEN_KEYPASS" ;;
-            *)         B64=""; PASS=""; ALIAS=""; KPASS="" ;;
+            evenpadel)   B64="$EVEN_B64";   PASS="$EVEN_PASS";   ALIAS="$EVEN_ALIAS";   KPASS="$EVEN_KEYPASS" ;;
+            wiplaypadel) B64="$WIPLAY_B64"; PASS="$WIPLAY_PASS"; ALIAS="$WIPLAY_ALIAS"; KPASS="$WIPLAY_KEYPASS" ;;
+            summapadel)  B64="$SUMMA_B64";  PASS="$SUMMA_PASS";  ALIAS="$SUMMA_ALIAS";  KPASS="$SUMMA_KEYPASS" ;;
+            *)           B64=""; PASS=""; ALIAS=""; KPASS="" ;;
           esac
 
           if [ -n "$B64" ]; then
