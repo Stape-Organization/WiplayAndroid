@@ -25,6 +25,11 @@ on:
         type: boolean
         required: false
         default: false
+      subir_icono_ficha:
+        description: "Subir tambien el icono 512x512 a la ficha de Play (pasa por revision de Google)"
+        type: boolean
+        required: false
+        default: false
       track:
         description: "Canal de Play al que subir"
         type: choice
@@ -158,6 +163,17 @@ jobs:
           releaseFiles: ${{ steps.play.outputs.aab }}
           track: ${{ github.event.inputs.track || 'internal' }}
           status: completed
+
+      # El icono de la ficha de tienda no viaja en el AAB: se sube aparte con la Play API.
+      - name: Subir icono a la ficha de Play
+        if: ${{ steps.play.conclusion == 'success' && github.event.inputs.subir_icono_ficha == 'true' }}
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          pip install --quiet google-auth requests
+          python3 .github/scripts/subir_icono_play.py \
+            "${{ steps.play.outputs.package }}" \
+            "app/src/${{ github.event.inputs.flavor || 'evenpadel' }}/ic_launcher-playstore.png"
 
       - name: Publicar artefactos
         uses: actions/upload-artifact@v4

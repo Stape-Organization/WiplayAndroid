@@ -79,3 +79,17 @@ Para publicar en otro canal hay que dar tambien ese permiso a la cuenta de servi
 
 Subir `versionCode` del flavor correspondiente en `app/build.gradle`. Play rechaza un AAB con un
 `versionCode` que ya exista en la consola.
+
+## Icono de la ficha de Play
+
+El icono que se ve en la tienda NO viaja dentro del AAB: es un recurso de la ficha y se sube
+con la Play Developer API. Lo hace `.github/scripts/subir_icono_play.py`, que el workflow ejecuta
+solo si marcas **subir_icono_ficha** al lanzarlo a mano.
+
+Coge el fichero `app/src/<flavor>/ic_launcher-playstore.png` (512x512, PNG sin transparencia) y lo
+pone en TODOS los idiomas que tenga la ficha.
+
+Requisito: la cuenta de servicio necesita en Play Console, ademas de publicar, el permiso de
+**gestionar la ficha de Play** ("Store presence"). Sin el, la API responde 403.
+
+Cada cambio de ficha pasa por revision de Google antes de verse en la tienda.
