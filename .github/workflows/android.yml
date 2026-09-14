@@ -140,7 +140,7 @@ jobs:
       # Solo se sube cuando se lanza a mano marcando la casilla: un push a main NO publica nada.
       - name: Resolver datos de la subida
         id: play
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.subir_a_play == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.subir_a_play == 'true' || github.event.inputs.subir_icono_ficha == 'true') }}
         run: |
           FLAVOR="${{ github.event.inputs.flavor || 'evenpadel' }}"
           case "$FLAVOR" in
@@ -156,7 +156,7 @@ jobs:
           echo "aab=app/build/outputs/bundle/${FLAVOR}Release/app-${FLAVOR}-release.aab" >> "$GITHUB_OUTPUT"
 
       - name: Subir a Google Play
-        if: ${{ steps.play.conclusion == 'success' }}
+        if: ${{ steps.play.conclusion == 'success' && github.event.inputs.subir_a_play == 'true' }}
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
