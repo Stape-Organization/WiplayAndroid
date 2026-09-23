@@ -20,7 +20,7 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
-ext.FLAVORS_CON_FIRMA = ['totpadel', 'wiplaypadel', 'indoorpadel7', 'summapadel', 'pickleball', 'evenpadel', 'local']
+ext.FLAVORS_CON_FIRMA = ['totpadel', 'wiplaypadel', 'indoorpadel7', 'summapadel', 'pickleball', 'evenpadel', 'basicfactory', 'local']
 
 ext.datosFirma = { String flavor ->
     def buscar = { String propiedad, String variable ->
@@ -158,6 +158,19 @@ android {
             resValue "string", "secondary_color", "#EAF02C"
         }
 
+        basicfactory {
+            dimension "versionType"
+            signingConfig signingConfigs.findByName("basicfactory")
+            applicationId "es.stape.basicfactory"
+            versionCode 1
+            versionName "1.0"
+            resValue "string", "app_name", "Basic Factory"
+            resValue "string", "app_url", "https://bfcastellet.wiplay.app"
+            resValue "string", "app_intent", "bfcastellet.wiplay.app"
+            resValue "string", "app_onesignal_id", "9e3c4477-ad03-4052-ba7a-f886a47d1f1a"
+            resValue "string", "principal_color", "#000000"
+            resValue "string", "secondary_color", "#FABE68"
+        }
         local {
             dimension "versionType"
             signingConfig signingConfigs.findByName("local")

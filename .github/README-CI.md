@@ -52,8 +52,30 @@ En *Settings > Secrets and variables > Actions*:
 | `ANDROID_KEY_ALIAS_EVENPADEL` | `stape` |
 | `ANDROID_KEY_PASSWORD_EVENPADEL` | Contrasena de la clave de Evenpadel |
 
-Para anadir otra app con clave propia: crear sus cuatro secrets `..._<FLAVOR>` y anadir el flavor
-al `case` del paso "Restaurar keystores" del workflow.
+El workflow busca los secrets del flavor por su nombre, asi que una app con clave propia solo
+necesita sus cuatro secrets `..._<FLAVOR>` (los crea `configurar-secrets.sh <flavor>`).
+
+## Dar de alta una app nueva
+
+`.github/scripts/nueva-app.sh` hace en un paso lo que antes eran los pasos a mano de Confluence
+("New Android Framework - 2024"): bloque del flavor en `build.gradle`, iconos y splash a partir
+de un logo, keystore de subida propio en `~/Documents/Keystores/<flavor>.jks` (apuntado en
+`keystore.properties`), secrets de GitHub y opcion en el desplegable del workflow.
+
+```bash
+.github/scripts/nueva-app.sh --flavor basicfactory --nombre "Basic Factory" \
+  --package es.stape.basicfactory --url https://bfcastellet.wiplay.app \
+  --color1 "#000000" --color2 "#FABE68" \
+  --logo logo.jpeg --recorte 280,90,430,430 --quitar-blanco --fondo-icono "#FFFFFF" \
+  --onesignal <app id de OneSignal>
+```
+
+Los iconos se pueden regenerar sueltos con `generar_iconos.py`. Lo que Google no permite por API
+y hay que hacer en Play Console: crear la app con ese paquete y dar acceso a la cuenta de servicio.
+
+OneSignal ya no necesita un proyecto de Firebase por app: la app no lleva `google-services.json`
+y OneSignal solo pide la clave JSON (FCM v1) de una cuenta de servicio, que puede ser la de un
+proyecto Firebase existente.
 
 ## Publicar en Play
 
@@ -64,14 +86,10 @@ La subida NO ocurre en los push: solo cuando se lanza el workflow a mano
 Usa la cuenta de servicio `play-publisher-ci@evenpadel-4ea6b.iam.gserviceaccount.com`, invitada en
 Play Console con permiso sobre la app. Su clave JSON esta en el secret `PLAY_SERVICE_ACCOUNT_JSON`.
 
-| Flavor | applicationId |
-|---|---|
-| evenpadel | es.stape.evenpadel |
-| wiplaypadel | es.stape.wiplaypadel |
-| totpadel | totpadel.cat.totpadel |
-| summapadel | es.stape.easypadel.summapadel |
-| indoorpadel7 | es.stape.indoorpadel7 |
-| pickleball | es.stape.easypadel.pickleball |
+El paquete de cada app se lee del `applicationId` de su flavor en `app/build.gradle`.
+
+Mientras la app siga en borrador en Play (nunca publicada), la API solo admite releases en
+estado `draft`: lanzar con **estado_release = draft** y terminar la release desde la consola.
 
 Para publicar en otro canal hay que dar tambien ese permiso a la cuenta de servicio en Play Console.
 

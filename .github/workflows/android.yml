@@ -20,6 +20,7 @@ on:
           - totpadel
           - indoorpadel7
           - pickleball
+          - basicfactory
       subir_a_play:
         description: "Subir el AAB al canal de pruebas internas de Google Play"
         type: boolean
@@ -40,6 +41,14 @@ on:
           - alpha
           - beta
           - production
+      estado_release:
+        description: "Estado de la release. Una app nueva en borrador en Play solo admite 'draft'"
+        type: choice
+        required: true
+        default: completed
+        options:
+          - completed
+          - draft
 
 jobs:
   build:
@@ -67,52 +76,35 @@ jobs:
         id: keystore
         env:
           FLAVOR: ${{ github.event.inputs.flavor || 'evenpadel' }}
-          GEN_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          GEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          GEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          GEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          EVEN_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64_EVENPADEL }}
-          EVEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_EVENPADEL }}
-          EVEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_EVENPADEL }}
-          EVEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_EVENPADEL }}
-          WIPLAY_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64_WIPLAYPADEL }}
-          WIPLAY_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_WIPLAYPADEL }}
-          WIPLAY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_WIPLAYPADEL }}
-          WIPLAY_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_WIPLAYPADEL }}
-          SUMMA_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64_SUMMAPADEL }}
-          SUMMA_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD_SUMMAPADEL }}
-          SUMMA_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS_SUMMAPADEL }}
-          SUMMA_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD_SUMMAPADEL }}
+          # Todos los secrets como JSON para leer los del flavor por su nombre
+          # (ANDROID_KEYSTORE_BASE64_<FLAVOR>...) sin tener que tocar este fichero con cada app
+          SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
+          secret() { echo "$SECRETS_JSON" | jq -r --arg k "$1" '.[$k] // empty'; }
+          hay_generico=false
           hay_flavor=false
 
-          if [ -n "$GEN_B64" ]; then
-            echo "$GEN_B64" | base64 --decode > "${{ runner.temp }}/generico.jks"
+          if [ -n "$(secret ANDROID_KEYSTORE_BASE64)" ]; then
+            secret ANDROID_KEYSTORE_BASE64 | base64 --decode > "${{ runner.temp }}/generico.jks"
             {
               echo "KEYSTORE_FILE=${{ runner.temp }}/generico.jks"
-              echo "KEYSTORE_PASSWORD=$GEN_PASS"
-              echo "KEY_ALIAS=$GEN_ALIAS"
-              echo "KEY_PASSWORD=$GEN_KEYPASS"
+              echo "KEYSTORE_PASSWORD=$(secret ANDROID_KEYSTORE_PASSWORD)"
+              echo "KEY_ALIAS=$(secret ANDROID_KEY_ALIAS)"
+              echo "KEY_PASSWORD=$(secret ANDROID_KEY_PASSWORD)"
             } >> "$GITHUB_ENV"
+            hay_generico=true
           else
             echo "::warning::Sin ANDROID_KEYSTORE_BASE64: los flavors sin clave propia iran sin firmar"
           fi
 
-          case "$FLAVOR" in
-            evenpadel)   B64="$EVEN_B64";   PASS="$EVEN_PASS";   ALIAS="$EVEN_ALIAS";   KPASS="$EVEN_KEYPASS" ;;
-            wiplaypadel) B64="$WIPLAY_B64"; PASS="$WIPLAY_PASS"; ALIAS="$WIPLAY_ALIAS"; KPASS="$WIPLAY_KEYPASS" ;;
-            summapadel)  B64="$SUMMA_B64";  PASS="$SUMMA_PASS";  ALIAS="$SUMMA_ALIAS";  KPASS="$SUMMA_KEYPASS" ;;
-            *)           B64=""; PASS=""; ALIAS=""; KPASS="" ;;
-          esac
-
-          if [ -n "$B64" ]; then
-            PREFIJO="$(echo "$FLAVOR" | tr '[:lower:]' '[:upper:]')"
-            echo "$B64" | base64 --decode > "${{ runner.temp }}/${FLAVOR}.jks"
+          SUF="$(echo "$FLAVOR" | tr '[:lower:]' '[:upper:]')"
+          if [ -n "$(secret "ANDROID_KEYSTORE_BASE64_$SUF")" ]; then
+            secret "ANDROID_KEYSTORE_BASE64_$SUF" | base64 --decode > "${{ runner.temp }}/${FLAVOR}.jks"
             {
-              echo "${PREFIJO}_KEYSTORE_FILE=${{ runner.temp }}/${FLAVOR}.jks"
-              echo "${PREFIJO}_KEYSTORE_PASSWORD=$PASS"
-              echo "${PREFIJO}_KEY_ALIAS=$ALIAS"
-              echo "${PREFIJO}_KEY_PASSWORD=$KPASS"
+              echo "${SUF}_KEYSTORE_FILE=${{ runner.temp }}/${FLAVOR}.jks"
+              echo "${SUF}_KEYSTORE_PASSWORD=$(secret "ANDROID_KEYSTORE_PASSWORD_$SUF")"
+              echo "${SUF}_KEY_ALIAS=$(secret "ANDROID_KEY_ALIAS_$SUF")"
+              echo "${SUF}_KEY_PASSWORD=$(secret "ANDROID_KEY_PASSWORD_$SUF")"
             } >> "$GITHUB_ENV"
             hay_flavor=true
             echo "Keystore propio cargado para el flavor $FLAVOR"
@@ -120,7 +112,7 @@ jobs:
             echo "::notice::El flavor $FLAVOR no tiene keystore propio: se usara el generico"
           fi
 
-          if [ -n "$GEN_B64" ] || [ "$hay_flavor" = true ]; then
+          if [ "$hay_generico" = true ] || [ "$hay_flavor" = true ]; then
             echo "hay_firma=true" >> "$GITHUB_OUTPUT"
           else
             echo "hay_firma=false" >> "$GITHUB_OUTPUT"
@@ -143,15 +135,9 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.subir_a_play == 'true' || github.event.inputs.subir_icono_ficha == 'true') }}
         run: |
           FLAVOR="${{ github.event.inputs.flavor || 'evenpadel' }}"
-          case "$FLAVOR" in
-            evenpadel)    PKG="es.stape.evenpadel" ;;
-            wiplaypadel)  PKG="es.stape.wiplaypadel" ;;
-            totpadel)     PKG="totpadel.cat.totpadel" ;;
-            summapadel)   PKG="es.stape.easypadel.summapadel" ;;
-            indoorpadel7) PKG="es.stape.indoorpadel7" ;;
-            pickleball)   PKG="es.stape.easypadel.pickleball" ;;
-            *) echo "::error::Flavor sin applicationId conocido: $FLAVOR"; exit 1 ;;
-          esac
+          # El applicationId sale del propio build.gradle: una app nueva no obliga a tocar esto
+          PKG="$(awk -v f="$FLAVOR" '$1==f && $2=="{" {d=1} d && $1=="applicationId" {gsub(/"/,"",$2); print $2; exit}' app/build.gradle)"
+          [ -n "$PKG" ] || { echo "::error::No encuentro el applicationId del flavor $FLAVOR"; exit 1; }
           echo "package=$PKG" >> "$GITHUB_OUTPUT"
           echo "aab=app/build/outputs/bundle/${FLAVOR}Release/app-${FLAVOR}-release.aab" >> "$GITHUB_OUTPUT"
 
@@ -163,7 +149,7 @@ jobs:
           packageName: ${{ steps.play.outputs.package }}
           releaseFiles: ${{ steps.play.outputs.aab }}
           track: ${{ github.event.inputs.track || 'internal' }}
-          status: completed
+          status: ${{ github.event.inputs.estado_release || 'completed' }}
 
       # El icono de la ficha de tienda no viaja en el AAB: se sube aparte con la Play API.
       - name: Subir icono a la ficha de Play
