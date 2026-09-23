@@ -76,21 +76,28 @@ jobs:
         id: keystore
         env:
           FLAVOR: ${{ github.event.inputs.flavor || 'evenpadel' }}
-          # Todos los secrets como JSON para leer los del flavor por su nombre
-          # (ANDROID_KEYSTORE_BASE64_<FLAVOR>...) sin tener que tocar este fichero con cada app
-          SECRETS_JSON: ${{ toJSON(secrets) }}
+          GEN_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          GEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Solo los secrets del flavor elegido, buscados por su nombre (ANDROID_..._<FLAVOR>;
+          # GitHub no distingue mayusculas en los nombres de secrets). Asi una app nueva no
+          # obliga a tocar este fichero.
+          FLAV_B64: ${{ secrets[format('ANDROID_KEYSTORE_BASE64_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+          FLAV_PASS: ${{ secrets[format('ANDROID_KEYSTORE_PASSWORD_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+          FLAV_ALIAS: ${{ secrets[format('ANDROID_KEY_ALIAS_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+          FLAV_KEYPASS: ${{ secrets[format('ANDROID_KEY_PASSWORD_{0}', github.event.inputs.flavor || 'evenpadel')] }}
         run: |
-          secret() { echo "$SECRETS_JSON" | jq -r --arg k "$1" '.[$k] // empty'; }
           hay_generico=false
           hay_flavor=false
 
-          if [ -n "$(secret ANDROID_KEYSTORE_BASE64)" ]; then
-            secret ANDROID_KEYSTORE_BASE64 | base64 --decode > "${{ runner.temp }}/generico.jks"
+          if [ -n "$GEN_B64" ]; then
+            echo "$GEN_B64" | base64 --decode > "${{ runner.temp }}/generico.jks"
             {
               echo "KEYSTORE_FILE=${{ runner.temp }}/generico.jks"
-              echo "KEYSTORE_PASSWORD=$(secret ANDROID_KEYSTORE_PASSWORD)"
-              echo "KEY_ALIAS=$(secret ANDROID_KEY_ALIAS)"
-              echo "KEY_PASSWORD=$(secret ANDROID_KEY_PASSWORD)"
+              echo "KEYSTORE_PASSWORD=$GEN_PASS"
+              echo "KEY_ALIAS=$GEN_ALIAS"
+              echo "KEY_PASSWORD=$GEN_KEYPASS"
             } >> "$GITHUB_ENV"
             hay_generico=true
           else
@@ -98,13 +105,13 @@ jobs:
           fi
 
           SUF="$(echo "$FLAVOR" | tr '[:lower:]' '[:upper:]')"
-          if [ -n "$(secret "ANDROID_KEYSTORE_BASE64_$SUF")" ]; then
-            secret "ANDROID_KEYSTORE_BASE64_$SUF" | base64 --decode > "${{ runner.temp }}/${FLAVOR}.jks"
+          if [ -n "$FLAV_B64" ]; then
+            echo "$FLAV_B64" | base64 --decode > "${{ runner.temp }}/${FLAVOR}.jks"
             {
               echo "${SUF}_KEYSTORE_FILE=${{ runner.temp }}/${FLAVOR}.jks"
-              echo "${SUF}_KEYSTORE_PASSWORD=$(secret "ANDROID_KEYSTORE_PASSWORD_$SUF")"
-              echo "${SUF}_KEY_ALIAS=$(secret "ANDROID_KEY_ALIAS_$SUF")"
-              echo "${SUF}_KEY_PASSWORD=$(secret "ANDROID_KEY_PASSWORD_$SUF")"
+              echo "${SUF}_KEYSTORE_PASSWORD=$FLAV_PASS"
+              echo "${SUF}_KEY_ALIAS=$FLAV_ALIAS"
+              echo "${SUF}_KEY_PASSWORD=$FLAV_KEYPASS"
             } >> "$GITHUB_ENV"
             hay_flavor=true
             echo "Keystore propio cargado para el flavor $FLAVOR"
