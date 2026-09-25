@@ -61,7 +61,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
     private Button backButton;
 
     private ValueCallback<Uri[]> mUploadMessage;
-    private static final int STORAGE_PERMISSION_CODE = 123;
+    private WebChromeClient.FileChooserParams mFileChooserParams;
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private final static int FILECHOOSER_RESULTCODE=1;
 
@@ -325,9 +325,14 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
                                              FileChooserParams fileChooserParams) {
+                // Si quedaba una seleccion a medias hay que cerrarla: el WebView no vuelve a
+                // abrir el selector mientras tenga un callback sin responder.
+                if (mUploadMessage != null) {
+                    mUploadMessage.onReceiveValue(null);
+                }
                 mUploadMessage = filePathCallback;
-                requestStoragePermission();
-
+                mFileChooserParams = fileChooserParams;
+                openFileExplorer();
                 return true;
             }
 
@@ -420,36 +425,38 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         super.onActivityResult(requestCode, resultCode, intent);
         if (requestCode == FILECHOOSER_RESULTCODE) {
             if (null == mUploadMessage) return;
-            Uri result = intent == null || resultCode != RESULT_OK ? null : intent.getData();
-            if (result == null) {
-                mUploadMessage.onReceiveValue(null);
-            } else {
-                mUploadMessage.onReceiveValue(new Uri[]{result});
-            }
+            // parseResult entiende tanto una seleccion simple (getData) como multiple (ClipData)
+            mUploadMessage.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, intent));
             mUploadMessage = null;
+            mFileChooserParams = null;
         }
     }
 
+    // Antes se pedia READ_EXTERNAL_STORAGE y solo se abria el selector si se concedia. Desde
+    // Android 13 ese permiso ya no existe para apps con target 33+: el sistema lo deniega sin
+    // preguntar, el selector no se abria nunca y el callback se quedaba sin responder (el
+    // modal de la foto de perfil se cerraba sin hacer nada). El selector del sistema no
+    // necesita ningun permiso: devuelve un content:// al que ya tenemos acceso.
     private void openFileExplorer() {
-        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("image/*");
-        MainActivity.this.startActivityForResult(Intent.createChooser(i, "File Chooser"), MainActivity.FILECHOOSER_RESULTCODE);
-    }
-
-    private void requestStoragePermission() {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            openFileExplorer();
-            return;
+        Intent i;
+        if (mFileChooserParams != null) {
+            // Respeta el accept="" y el multiple del <input type="file"> de la web
+            i = mFileChooserParams.createIntent();
+        } else {
+            i = new Intent(Intent.ACTION_GET_CONTENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("image/*");
         }
-
-        if (ActivityCompat.shouldShowRequestPermissionRationale(this, android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
-            //If the user has denied the permission previously your code will come to this block
-            //Here you can explain why you need this permission
-            //Explain here why you need this permission
+        try {
+            startActivityForResult(Intent.createChooser(i, "Selecciona un archivo"), FILECHOOSER_RESULTCODE);
+        } catch (ActivityNotFoundException e) {
+            Log.e("FileChooser", "No hay ninguna app para elegir archivos", e);
+            if (mUploadMessage != null) {
+                mUploadMessage.onReceiveValue(null);
+                mUploadMessage = null;
+            }
+            Toast.makeText(this, "No se ha encontrado ninguna app para elegir archivos", Toast.LENGTH_LONG).show();
         }
-        //And finally ask for the permission
-        ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE}, STORAGE_PERMISSION_CODE);
     }
 
     @Override
@@ -462,8 +469,11 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             mWebView.loadUrl(intent.getData().toString());
         } else {
             // Sino pintamos el acceso por defecto
-            System.out.println("Asociando app: " + userID);
-            mWebView.loadUrl(URL + "?app=true&userID=" + userID);
+            // osApp: la app de OneSignal a la que pertenece la suscripcion. Un mismo usuario puede
+            // tener la app de Wiplay y la de su club, cada una con su propio OneSignal, y el
+            // servidor necesita saber con que app_id enviarle a cada suscripcion.
+            System.out.println("Asociando app: " + userID + " (OneSignal " + ONESIGNAL_ID + ")");
+            mWebView.loadUrl(URL + "?app=true&userID=" + userID + "&osApp=" + ONESIGNAL_ID);
         }
     }
 }

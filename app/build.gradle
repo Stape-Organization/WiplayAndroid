@@ -162,7 +162,7 @@ android {
             dimension "versionType"
             signingConfig signingConfigs.findByName("basicfactory")
             applicationId "es.stape.basicfactory"
-            versionCode 1
+            versionCode 2
             versionName "1.0"
             resValue "string", "app_name", "Basic Factory"
             resValue "string", "app_url", "https://bfcastellet.wiplay.app"
