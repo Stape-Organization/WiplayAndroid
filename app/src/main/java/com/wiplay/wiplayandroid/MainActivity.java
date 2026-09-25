@@ -33,6 +33,8 @@ import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
+import android.webkit.SslErrorHandler;
+import android.net.http.SslError;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -49,9 +51,13 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 
+import com.onesignal.OSDeviceState;
 import com.onesignal.OSSubscriptionObserver;
 import com.onesignal.OSSubscriptionStateChanges;
 import com.onesignal.OneSignal;
+import androidx.webkit.WebViewFeature;
+import androidx.webkit.ProxyController;
+import androidx.webkit.ProxyConfig;
 
 public class MainActivity extends AppCompatActivity implements OSSubscriptionObserver {
     private WebView mWebView;
@@ -197,15 +203,19 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
-        Intent intent = getIntent();
-        String action = intent.getAction();
-        if (intent.getData() != null) {
-            // Si hemos interceptado alguna petición
-            mWebView.loadUrl(intent.getData().toString());
+        if (BuildConfig.DEBUG && !BuildConfig.PROXY_LOCAL.isEmpty()
+                && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            // Solo en debug con -PurlLocal: todo el trafico del WebView pasa por el proxy del
+            // Mac para llegar a *.localhost. removeImplicitRules hace que localhost tambien
+            // vaya por el proxy (por defecto Chromium nunca lo envia a un proxy).
+            ProxyConfig proxyConfig = new ProxyConfig.Builder()
+                    .addProxyRule(BuildConfig.PROXY_LOCAL)
+                    .removeImplicitRules()
+                    .build();
+            ProxyController.getInstance().setProxyOverride(proxyConfig, Runnable::run, this::cargarInicio);
+            Log.i("ProxyLocal", "WebView por el proxy " + BuildConfig.PROXY_LOCAL + " hacia " + URL);
         } else {
-            // Sino pintamos el acceso por defecto
-            System.out.println("Loading URL: " + this.URL);
-            mWebView.loadUrl(this.URL + "?app=true");
+            cargarInicio();
         }
 
         /**
@@ -238,6 +248,26 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             }
             startActivity(intent2);
         }
+    }
+
+    private void cargarInicio() {
+        Intent intent = getIntent();
+        if (intent.getData() != null) {
+            // Si hemos interceptado alguna petición
+            mWebView.loadUrl(intent.getData().toString());
+        } else {
+            // Sino pintamos el acceso por defecto. Si ya tenemos suscripcion de OneSignal se manda
+            // en cada arranque (no solo cuando cambia): asi el servidor la vuelve a asociar al
+            // usuario con sesion iniciada aunque otro dispositivo la haya sustituido.
+            System.out.println("Loading URL: " + this.URL);
+            mWebView.loadUrl(this.URL + "?app=true" + parametrosSuscripcion());
+        }
+    }
+
+    private String parametrosSuscripcion() {
+        OSDeviceState estado = OneSignal.getDeviceState();
+        String userID = estado != null ? estado.getUserId() : null;
+        return userID == null ? "" : "&userID=" + userID + "&osApp=" + ONESIGNAL_ID;
     }
 
     @Override
@@ -384,6 +414,18 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             }
 
             @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // El servidor local usa un certificado de mkcert, que Android no reconoce. Solo
+                // se acepta en debug y para *.localhost; en release se rechaza como siempre.
+                String host = Uri.parse(error.getUrl()).getHost();
+                if (BuildConfig.DEBUG && host != null && host.endsWith(".localhost")) {
+                    handler.proceed();
+                } else {
+                    super.onReceivedSslError(view, handler, error);
+                }
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
 
@@ -464,6 +506,11 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         Intent intent = getIntent();
         String action = intent.getAction();
         String userID = stateChanges.getTo().getUserId();
+        if (userID == null) {
+            // OneSignal avisa primero sin suscripcion todavia: no hay nada que asociar y
+            // recargar la web con userID=null solo le haria guardar un valor vacio.
+            return;
+        }
         if (intent.getData() != null) {
             // Si hemos interceptado alguna petición
             mWebView.loadUrl(intent.getData().toString());
@@ -473,7 +520,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             // tener la app de Wiplay y la de su club, cada una con su propio OneSignal, y el
             // servidor necesita saber con que app_id enviarle a cada suscripcion.
             System.out.println("Asociando app: " + userID + " (OneSignal " + ONESIGNAL_ID + ")");
-            mWebView.loadUrl(URL + "?app=true&userID=" + userID + "&osApp=" + ONESIGNAL_ID);
+            mWebView.loadUrl(URL + "?app=true" + parametrosSuscripcion());
         }
     }
 }
