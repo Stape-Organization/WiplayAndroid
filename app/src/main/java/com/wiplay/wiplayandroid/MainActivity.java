@@ -36,6 +36,9 @@ import android.webkit.ValueCallback;
 import android.webkit.SslErrorHandler;
 import android.net.http.SslError;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -44,6 +47,9 @@ import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -120,7 +126,27 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         });
     }
 
+    private void handleIncomingDeepLink(Intent intent) {
+        if (intent == null) return;
 
+        Uri data = intent.getData();
+        if (Intent.ACTION_VIEW.equals(intent.getAction()) && data != null) {
+            String incomingUrl = data.toString();
+            Log.i("DeepLink", "Incoming URL: " + incomingUrl);
+
+            if (mWebView != null) {
+                mWebView.loadUrl(incomingUrl);
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Log.i("DeepLink", "onNewIntent action=" + intent.getAction() + " data=" + intent.getData());
+        setIntent(intent);
+        handleIncomingDeepLink(intent);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -154,6 +180,8 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         progressAnimator.setInterpolator(new LinearInterpolator());
         progressAnimator.start();
 
+        mostrarSplash();
+
         backButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -179,9 +207,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 dm.enqueue(request);
                 Toast.makeText(getApplicationContext(), "Descarregant fitxer", Toast.LENGTH_LONG).show();
-                cargando.setVisibility(View.GONE);
-                progressBar.setVisibility(View.GONE);
-                progressView.setVisibility(View.GONE);
+                ocultarSplash();
             }
         });
 
@@ -260,7 +286,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             // en cada arranque (no solo cuando cambia): asi el servidor la vuelve a asociar al
             // usuario con sesion iniciada aunque otro dispositivo la haya sustituido.
             System.out.println("Loading URL: " + this.URL);
-            mWebView.loadUrl(this.URL + "?app=true" + parametrosSuscripcion());
+            mWebView.loadUrl(this.URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
         }
     }
 
@@ -376,27 +402,25 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         });
         mWebView.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                cargando.setVisibility(View.VISIBLE);
-                progressBar.setVisibility(View.VISIBLE);
-                progressView.setVisibility(View.VISIBLE);
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                String url = uri.toString();
+                Log.i("UrlLoading", "uri " + uri + " url " + url);
+
                 if (url.startsWith("https://accounts.google.com")) {
                     return false;
                 } else if (url.startsWith("http:") || url.startsWith("https:")) {
                     return false;
                 } else if (url.startsWith("whatsapp://")) {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    intent.setPackage("com.whatsapp");
+                    // Se redirige a wa.me con el texto: funciona tenga o no WhatsApp instalado
+                    String text = uri.getQueryParameter("text");
+                    if (text == null) text = "";
+
+                    Uri wa = Uri.parse("https://wa.me/?text=" + Uri.encode(text));
                     try {
-                        startActivity(intent);
-                        if (mWebView.canGoBack()) {
-                            mWebView.goBack();
-                        }
-                    } catch (ActivityNotFoundException e) {
-                        Toast.makeText(MainActivity.this, "WhatsApp not installed.", Toast.LENGTH_LONG).show();
-                        if (mWebView.canGoBack()) {
-                            mWebView.goBack();
-                        }
+                        startActivity(new Intent(Intent.ACTION_VIEW, wa));
+                    } catch (Exception e) {
+                        Toast.makeText(getApplicationContext(), "Unable to open WhatsApp share.", Toast.LENGTH_LONG).show();
                     }
                     return true;
                 }
@@ -432,20 +456,17 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 // Verifica si la URL no pertenece a tu dominio
                 if (!url.contains(DOMAIN)) {
                     backButton.setVisibility(View.VISIBLE);
-                    cargando.setVisibility(View.GONE);
-                    progressBar.setVisibility(View.GONE);
-                    progressView.setVisibility(View.GONE);
+                    ocultarSplash();
                 } else {
                     backButton.setVisibility(View.GONE);
+                    mostrarSplash();
                 }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                cargando.setVisibility(View.GONE);
-                progressBar.setVisibility(View.GONE);
-                progressView.setVisibility(View.GONE);
+                ocultarSplash();
                 paginaCargada = true;
 
                 if (locationTemporal != null) {
@@ -459,7 +480,67 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                     backButton.setVisibility(View.GONE);
                 }
             }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                // Solo ocultar el splash si el error es del frame principal (no de recursos embebidos)
+                if (request.isForMainFrame()) {
+                    Log.e("WebView", "Error cargando página principal: " + error.getDescription());
+                    ocultarSplash();
+                }
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+                super.onReceivedHttpError(view, request, errorResponse);
+                if (request.isForMainFrame()) {
+                    Log.e("WebView", "HTTP error en página principal: " + errorResponse.getStatusCode());
+                    ocultarSplash();
+                }
+            }
         });
+
+        // Timeout de seguridad: si en 30 segundos no carga, ocultar el splash
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!paginaCargada) {
+                    Log.w("WebView", "Timeout: ocultando splash tras 30 segundos sin respuesta");
+                    ocultarSplash();
+                }
+            }
+        }, 30000);
+    }
+
+    // Si el flavor usa un GIF como logo_splash (res/values/splash.xml) se anima con Glide y no
+    // se muestra la barra de progreso; si no, el logo estatico con la barra como siempre.
+    private boolean splashAnimado() {
+        return getResources().getBoolean(R.bool.splash_animado);
+    }
+
+    private void mostrarSplash() {
+        progressView.setVisibility(View.VISIBLE);
+        cargando.setVisibility(View.VISIBLE);
+        if (splashAnimado()) {
+            progressBar.setVisibility(View.GONE);
+            Glide.with(this)
+                    .asGif()
+                    .load(R.drawable.logo_splash)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                    .into(cargando);
+        } else {
+            progressBar.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void ocultarSplash() {
+        cargando.setVisibility(View.GONE);
+        progressBar.setVisibility(View.GONE);
+        progressView.setVisibility(View.GONE);
+        if (splashAnimado()) {
+            Glide.with(this).clear(cargando);
+        }
     }
 
     @Override
@@ -520,7 +601,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             // tener la app de Wiplay y la de su club, cada una con su propio OneSignal, y el
             // servidor necesita saber con que app_id enviarle a cada suscripcion.
             System.out.println("Asociando app: " + userID + " (OneSignal " + ONESIGNAL_ID + ")");
-            mWebView.loadUrl(URL + "?app=true" + parametrosSuscripcion());
+            mWebView.loadUrl(URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
         }
     }
 }

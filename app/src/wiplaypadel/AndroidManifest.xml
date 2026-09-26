@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity android:name="com.wiplay.wiplayandroid.MainActivity">
+
+            <!-- App Link: admin.wiplay.app -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="admin.wiplay.app"
+                    android:pathPrefix="/" />
+            </intent-filter>
+
+            <!--
+                App Link wildcard: *.wiplay.app
+                Captura cualquier subdominio de wiplay.app (Android 6+).
+                IMPORTANTE: para que la verificación automática funcione en Android 12+,
+                cada subdominio necesita su propio /.well-known/assetlinks.json con el
+                package_name "es.stape.wiplaypadel" y el SHA-256 del certificado de firma.
+                Sin ese archivo, Android abrirá un selector en lugar de la app directamente.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="*.wiplay.app"
+                    android:pathPrefix="/" />
+            </intent-filter>
+
+        </activity>
+    </application>
+
+</manifest>

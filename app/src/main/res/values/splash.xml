@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pantalla de carga. Cada flavor puede sobrescribir estos valores (ver wiplaypadel, que
+  usa un GIF animado como logo_splash sobre fondo blanco y sin barra de progreso).
+-->
+<resources>
+    <color name="splash_background">#CC000000</color>
+    <dimen name="splash_logo_size">180dp</dimen>
+    <!-- true si drawable/logo_splash es un GIF animado: se reproduce con Glide y se oculta la barra -->
+    <bool name="splash_animado">false</bool>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#FFFFFF</color>
+    <dimen name="splash_logo_size">260dp</dimen>
+    <bool name="splash_animado">true</bool>
+</resources>

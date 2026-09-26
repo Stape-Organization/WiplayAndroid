@@ -31,17 +31,17 @@
         android:id="@+id/progressView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#CC000000" />
+        android:background="@color/splash_background" />
 
     <!--
       Antes usaba wrap_content sobre el mipmap: se dibujaba al tamano nativo del icono
       (~192px), que en pantallas modernas se ve diminuto. Ahora tamano fijo y el recurso
-      logo_splash, que cada flavor puede sobrescribir con su propia version.
+      logo_splash, que cada flavor puede sobrescribir con su propia version (res/values/splash.xml).
     -->
     <ImageView
         android:id="@+id/logo"
-        android:layout_width="180dp"
-        android:layout_height="180dp"
+        android:layout_width="@dimen/splash_logo_size"
+        android:layout_height="@dimen/splash_logo_size"
         android:adjustViewBounds="true"
         android:scaleType="fitCenter"
         android:src="@drawable/logo_splash"
