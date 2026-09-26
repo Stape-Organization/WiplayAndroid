@@ -79,8 +79,9 @@ android {
             dimension "versionType"
             signingConfig signingConfigs.findByName("totpadel")
             applicationId "totpadel.cat.totpadel"
-            versionName "5.0"
-            versionCode 101
+            //En produccion esta la 102 (1.0, oct 2025), compilada sin subir el numero al repo
+            versionName "1.1"
+            versionCode 103
             resValue "string", "app_name", "Totpadel"
             resValue "string", "app_url", "https://totpadel.cat"
             resValue "string", "app_intent", "totpadel.cat"
