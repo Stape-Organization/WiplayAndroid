@@ -46,6 +46,6 @@ echo "Repositorio: $REPO"
 if [ $# -gt 0 ]; then
   for f in "$@"; do configurar_flavor "$f"; done
 else
-  for f in evenpadel wiplaypadel summapadel totpadel indoorpadel7; do configurar_flavor "$f"; done
+  for f in evenpadel wiplaypadel summapadel totpadel indoorpadel7 basicfactory; do configurar_flavor "$f"; done
 fi
 echo "Listo. Comprueba con: gh secret list --repo $REPO"

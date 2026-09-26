@@ -11,6 +11,8 @@ bundle con "The Android App Bundle was signed with the wrong key".
 | Flavor | Keystore | Alias | SHA1 del certificado |
 |---|---|---|---|
 | evenpadel | stapeKey | stape | 9F:41:39:86:08:85:35:E5:DD:75:89:50:BA:60:F7:FB:C8:66:BD:53 |
+| totpadel | totpadel | totpadel | AB:BA:BE:A7:D0:57:DD:F9:E1:10:C9:CC:2D:1C:8D:B7:B0:30:08:47 |
+| basicfactory | basicfactory.jks | basicfactory | 9A:A1:4C:7D:85:CA:82:56:53:FB:D1:6C:0A:78:6E:D1:63:AF:80:DB |
 | resto | wiplay | wiplay | E9:FC:5B:AD:47:51:1B:A9:A6:9F:8B:A3:DE:89:32:2D:9C:CE:1B:9A |
 
 `build.gradle` resuelve la firma de cada flavor en este orden:
