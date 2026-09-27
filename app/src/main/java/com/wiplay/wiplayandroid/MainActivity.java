@@ -403,20 +403,34 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         mWebView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
+                return manejarUrl(request.getUrl());
+            }
+
+            // Android 5 y 6 (minSdk 21) solo llaman a esta version: sin ella, los tel:, mailto:
+            // y whatsapp: no se abrian en esos moviles.
+            @Override
+            @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return manejarUrl(Uri.parse(url));
+            }
+
+            private boolean manejarUrl(Uri uri) {
                 String url = uri.toString();
-                Log.i("UrlLoading", "uri " + uri + " url " + url);
+                Log.i("UrlLoading", "url " + url);
 
                 if (url.startsWith("https://accounts.google.com")) {
                     return false;
                 } else if (url.startsWith("http:") || url.startsWith("https:")) {
                     return false;
                 } else if (url.startsWith("whatsapp://")) {
-                    // Se redirige a wa.me con el texto: funciona tenga o no WhatsApp instalado
+                    // Se redirige a wa.me: funciona tenga o no WhatsApp instalado. Se conserva el
+                    // telefono (whatsapp://send?phone=...&text=...): sin el, WhatsApp se abria sin
+                    // destinatario, p. ej. en "contactar con el club".
                     String text = uri.getQueryParameter("text");
-                    if (text == null) text = "";
-
-                    Uri wa = Uri.parse("https://wa.me/?text=" + Uri.encode(text));
+                    String phone = uri.getQueryParameter("phone");
+                    String digitos = phone != null ? phone.replaceAll("[^0-9]", "") : "";
+                    Uri wa = Uri.parse("https://wa.me/" + digitos
+                            + (text != null ? "?text=" + Uri.encode(text) : ""));
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, wa));
                     } catch (Exception e) {
@@ -427,8 +441,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
 
                 // Otherwise allow the OS to handle things like tel, mailto, etc.
                 try {
-                    // Otherwise allow the OS to handle things like tel, mailto, etc.
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
                     startActivity(intent);
                 } catch (Exception e) {
                     Log.e("WebView", "Unexpected error occurred while handling URL: " + url, e);
@@ -454,7 +467,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 super.onPageStarted(view, url, favicon);
 
                 // Verifica si la URL no pertenece a tu dominio
-                if (!url.contains(DOMAIN)) {
+                if (!esDominioPropio(url)) {
                     backButton.setVisibility(View.VISIBLE);
                     ocultarSplash();
                 } else {
@@ -474,7 +487,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 }
 
                 // Verifica si la URL no pertenece a tu dominio
-                if (!url.contains(DOMAIN)) {
+                if (!esDominioPropio(url)) {
                     backButton.setVisibility(View.VISIBLE);
                 } else {
                     backButton.setVisibility(View.GONE);
@@ -511,6 +524,19 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 }
             }
         }, 30000);
+    }
+
+    // Una pagina es "de la app" si su host es el dominio de la app o un subdominio del mismo
+    // dominio raiz: en Wiplay (webapp.wiplay.app) los clubes abren como bfcastellet.wiplay.app y
+    // no deben mostrar el boton "Atras" de web externa. Antes se miraba url.contains(DOMAIN).
+    private boolean esDominioPropio(String url) {
+        String host = url != null ? Uri.parse(url).getHost() : null;
+        if (host == null || DOMAIN == null) return false;
+        String[] partes = DOMAIN.split("\\.");
+        String raiz = partes.length >= 2
+                ? partes[partes.length - 2] + "." + partes[partes.length - 1]
+                : DOMAIN;
+        return host.equals(raiz) || host.endsWith("." + raiz);
     }
 
     // Si el flavor usa un GIF como logo_splash (res/values/splash.xml) se anima con Glide y no
