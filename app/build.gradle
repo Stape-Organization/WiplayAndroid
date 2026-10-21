@@ -149,9 +149,9 @@ android {
             dimension "versionType"
             signingConfig signingConfigs.findByName("evenpadel")
             applicationId "es.stape.evenpadel"
-            //En produccion la 6 (2.2, sep 2026). La 7 cambia el nombre visible a SIUX EVEN PADEL
+            //En produccion la 6 (2.2, sep 2026). La 7 (2.2.1, como iOS) cambia el nombre visible a SIUX EVEN PADEL
             versionCode 7
-            versionName "2.3"
+            versionName "2.2.1"
             resValue "string", "app_name", "SIUX EVEN PADEL"
             resValue "string", "app_url", "https://evenpadel.com/"
             resValue "string", "app_intent", "evenpadel.com"
