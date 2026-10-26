@@ -26,11 +26,13 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.animation.LinearInterpolator;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.SslErrorHandler;
@@ -220,6 +222,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         webSettings.setTextZoom(90);
         webSettings.setAllowFileAccess(true);
         webSettings.setGeolocationEnabled(true);
+        mWebView.addJavascriptInterface(new PuenteQr(), "WiplayQr");
 
         CookieManager.getInstance().setAcceptCookie(true);
         if(android.os.Build.VERSION.SDK_INT >= 21) {
@@ -365,6 +368,44 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         });
     }
 
+    // Capturas del QR del carnet: mientras la web lo tiene abierto (CarnetQr.start ... stop,
+    // en carnetQrRotatorio.jsp) la ventana lleva FLAG_SECURE, asi que no se puede hacer captura
+    // ni grabar la pantalla, y en "recientes" sale en negro. Fuera del QR las capturas siguen
+    // funcionando. Se engancha desde la app envolviendo CarnetQr, sin tocar la web; si la web
+    // define CarnetQr despues de cargar (contenido por ajax), el setter lo envuelve al llegar.
+    private static final String JS_ENGANCHE_QR =
+            "(function () {" +
+            "  if (window.__wiplayQr) return; window.__wiplayQr = true;" +
+            "  function envolver(qr) {" +
+            "    if (!qr || qr.__wiplay) return qr;" +
+            "    var start = qr.start, stop = qr.stop;" +
+            "    qr.start = function () { try { WiplayQr.visible(true); } catch (e) {} return start.apply(this, arguments); };" +
+            "    qr.stop = function () { try { WiplayQr.visible(false); } catch (e) {} return stop.apply(this, arguments); };" +
+            "    qr.__wiplay = true; return qr;" +
+            "  }" +
+            "  var actual = envolver(window.CarnetQr);" +
+            "  try {" +
+            "    Object.defineProperty(window, 'CarnetQr', { configurable: true," +
+            "      get: function () { return actual; }," +
+            "      set: function (v) { actual = envolver(v); } });" +
+            "  } catch (e) {}" +
+            "})();";
+
+    private class PuenteQr {
+        @JavascriptInterface
+        public void visible(boolean visible) {
+            runOnUiThread(() -> protegerPantalla(visible));
+        }
+    }
+
+    private void protegerPantalla(boolean proteger) {
+        if (proteger) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
+    }
+
     private void configLoader() {
         Log.d("Config", "CCM - Config");
         mWebView.setWebChromeClient(new WebChromeClient() {
@@ -465,6 +506,8 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                // Al cambiar de pagina el QR deja de verse aunque la web no llamara a stop()
+                protegerPantalla(false);
 
                 // Verifica si la URL no pertenece a tu dominio
                 if (!esDominioPropio(url)) {
@@ -481,6 +524,9 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 super.onPageFinished(view, url);
                 ocultarSplash();
                 paginaCargada = true;
+                if (esDominioPropio(url)) {
+                    view.evaluateJavascript(JS_ENGANCHE_QR, null);
+                }
 
                 if (locationTemporal != null) {
                     sendLocationToWebView(locationTemporal.getLatitude(), locationTemporal.getLongitude());
