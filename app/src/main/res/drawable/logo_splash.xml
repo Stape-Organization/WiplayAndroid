@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Logo de la pantalla de carga. Por defecto reutiliza el icono de cada app, asi que
+  cada flavor muestra el suyo sin necesidad de mantener un recurso aparte.
+  Un flavor puede sustituirlo poniendo su propio drawable/logo_splash (ver evenpadel,
+  que aporta una version en alta resolucion para que no se pixele al ampliarla).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@mipmap/ic_launcher_round" />
+</layer-list>

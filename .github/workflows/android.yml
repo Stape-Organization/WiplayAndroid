@@ -1,0 +1,185 @@
+name: Android
+
+# Compila la app en cada push y en cada PR para detectar builds rotos.
+# Si estan configurados los secrets de firma, genera ademas el AAB firmado de release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "App a compilar y publicar"
+        type: choice
+        required: true
+        default: evenpadel
+        options:
+          - evenpadel
+          - wiplaypadel
+          - summapadel
+          - totpadel
+          - indoorpadel7
+          - pickleball
+          - basicfactory
+      subir_a_play:
+        description: "Subir el AAB al canal de pruebas internas de Google Play"
+        type: boolean
+        required: false
+        default: false
+      subir_icono_ficha:
+        description: "Subir tambien el icono 512x512 a la ficha de Play (pasa por revision de Google)"
+        type: boolean
+        required: false
+        default: false
+      track:
+        description: "Canal de Play al que subir"
+        type: choice
+        required: true
+        default: internal
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      estado_release:
+        description: "Estado de la release. Una app nueva en borrador en Play solo admite 'draft'"
+        type: choice
+        required: true
+        default: completed
+        options:
+          - completed
+          - draft
+
+jobs:
+  build:
+    name: Compilar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cachear Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # Los keystores no viven en el repositorio: llegan como secrets en base64.
+      # Cada app esta firmada con una clave distinta, asi que ademas del keystore generico
+      # se admite uno especifico por flavor. build.gradle busca primero el del flavor
+      # (<FLAVOR>_KEYSTORE_*) y si no existe cae al generico (KEYSTORE_*).
+      - name: Restaurar keystores
+        id: keystore
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor || 'evenpadel' }}
+          GEN_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GEN_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          GEN_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GEN_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Solo los secrets del flavor elegido, buscados por su nombre (ANDROID_..._<FLAVOR>;
+          # GitHub no distingue mayusculas en los nombres de secrets). Asi una app nueva no
+          # obliga a tocar este fichero.
+          FLAV_B64: ${{ secrets[format('ANDROID_KEYSTORE_BASE64_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+          FLAV_PASS: ${{ secrets[format('ANDROID_KEYSTORE_PASSWORD_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+          FLAV_ALIAS: ${{ secrets[format('ANDROID_KEY_ALIAS_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+          FLAV_KEYPASS: ${{ secrets[format('ANDROID_KEY_PASSWORD_{0}', github.event.inputs.flavor || 'evenpadel')] }}
+        run: |
+          hay_generico=false
+          hay_flavor=false
+
+          if [ -n "$GEN_B64" ]; then
+            echo "$GEN_B64" | base64 --decode > "${{ runner.temp }}/generico.jks"
+            {
+              echo "KEYSTORE_FILE=${{ runner.temp }}/generico.jks"
+              echo "KEYSTORE_PASSWORD=$GEN_PASS"
+              echo "KEY_ALIAS=$GEN_ALIAS"
+              echo "KEY_PASSWORD=$GEN_KEYPASS"
+            } >> "$GITHUB_ENV"
+            hay_generico=true
+          else
+            echo "::warning::Sin ANDROID_KEYSTORE_BASE64: los flavors sin clave propia iran sin firmar"
+          fi
+
+          SUF="$(echo "$FLAVOR" | tr '[:lower:]' '[:upper:]')"
+          if [ -n "$FLAV_B64" ]; then
+            echo "$FLAV_B64" | base64 --decode > "${{ runner.temp }}/${FLAVOR}.jks"
+            {
+              echo "${SUF}_KEYSTORE_FILE=${{ runner.temp }}/${FLAVOR}.jks"
+              echo "${SUF}_KEYSTORE_PASSWORD=$FLAV_PASS"
+              echo "${SUF}_KEY_ALIAS=$FLAV_ALIAS"
+              echo "${SUF}_KEY_PASSWORD=$FLAV_KEYPASS"
+            } >> "$GITHUB_ENV"
+            hay_flavor=true
+            echo "Keystore propio cargado para el flavor $FLAVOR"
+          else
+            echo "::notice::El flavor $FLAVOR no tiene keystore propio: se usara el generico"
+          fi
+
+          if [ "$hay_generico" = true ] || [ "$hay_flavor" = true ]; then
+            echo "hay_firma=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay_firma=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compilar debug (todos los flavors)
+        run: ./gradlew assembleDebug --stacktrace
+
+      # Solo en lanzamientos manuales: en un push no hace falta un binario firmado
+      - name: Generar AAB de release
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.keystore.outputs.hay_firma == 'true' }}
+        run: |
+          FLAVOR="${{ github.event.inputs.flavor || 'evenpadel' }}"
+          CAP="$(echo "${FLAVOR:0:1}" | tr '[:lower:]' '[:upper:]')${FLAVOR:1}"
+          ./gradlew "bundle${CAP}Release" --stacktrace
+
+      # Solo se sube cuando se lanza a mano marcando la casilla: un push a main NO publica nada.
+      - name: Resolver datos de la subida
+        id: play
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.subir_a_play == 'true' || github.event.inputs.subir_icono_ficha == 'true') }}
+        run: |
+          FLAVOR="${{ github.event.inputs.flavor || 'evenpadel' }}"
+          # El applicationId sale del propio build.gradle: una app nueva no obliga a tocar esto
+          PKG="$(awk -v f="$FLAVOR" '$1==f && $2=="{" {d=1} d && $1=="applicationId" {gsub(/"/,"",$2); print $2; exit}' app/build.gradle)"
+          [ -n "$PKG" ] || { echo "::error::No encuentro el applicationId del flavor $FLAVOR"; exit 1; }
+          echo "package=$PKG" >> "$GITHUB_OUTPUT"
+          echo "aab=app/build/outputs/bundle/${FLAVOR}Release/app-${FLAVOR}-release.aab" >> "$GITHUB_OUTPUT"
+
+      - name: Subir a Google Play
+        if: ${{ steps.play.conclusion == 'success' && github.event.inputs.subir_a_play == 'true' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ steps.play.outputs.package }}
+          releaseFiles: ${{ steps.play.outputs.aab }}
+          track: ${{ github.event.inputs.track || 'internal' }}
+          status: ${{ github.event.inputs.estado_release || 'completed' }}
+
+      # El icono de la ficha de tienda no viaja en el AAB: se sube aparte con la Play API.
+      - name: Subir icono a la ficha de Play
+        if: ${{ steps.play.conclusion == 'success' && github.event.inputs.subir_icono_ficha == 'true' }}
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          pip install --quiet google-auth requests
+          python3 .github/scripts/subir_icono_play.py \
+            "${{ steps.play.outputs.package }}" \
+            "app/src/${{ github.event.inputs.flavor || 'evenpadel' }}/ic_launcher-playstore.png"
+
+      - name: Publicar artefactos
+        uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          name: builds
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/bundle/**/*.aab
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Borrar keystores
+        if: always()
+        run: rm -f "${{ runner.temp }}"/*.jks

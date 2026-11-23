@@ -28,15 +28,21 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.animation.LinearInterpolator;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
+import android.webkit.SslErrorHandler;
+import android.net.http.SslError;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -46,15 +52,22 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 
+import com.onesignal.OSDeviceState;
 import com.onesignal.OSSubscriptionObserver;
 import com.onesignal.OSSubscriptionStateChanges;
 import com.onesignal.OneSignal;
+import androidx.webkit.WebViewFeature;
+import androidx.webkit.ProxyController;
+import androidx.webkit.ProxyConfig;
 
 public class MainActivity extends AppCompatActivity implements OSSubscriptionObserver {
     private WebView mWebView;
@@ -64,7 +77,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
     private Button backButton;
 
     private ValueCallback<Uri[]> mUploadMessage;
-    private static final int STORAGE_PERMISSION_CODE = 123;
+    private WebChromeClient.FileChooserParams mFileChooserParams;
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private final static int FILECHOOSER_RESULTCODE=1;
 
@@ -131,11 +144,6 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             String incomingUrl = data.toString();
             Log.i("DeepLink", "Incoming URL: " + incomingUrl);
 
-            // Optional: if your site sometimes sends bare domain without webapp, map it:
-            // if (incomingUrl.startsWith("https://wiplaypadel.com")) {
-            //     incomingUrl = incomingUrl.replace("https://wiplaypadel.com", "https://webapp.wiplaypadel.com");
-            // }
-
             if (mWebView != null) {
                 mWebView.loadUrl(incomingUrl);
             }
@@ -187,6 +195,8 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         progressAnimator.setInterpolator(new LinearInterpolator());
         progressAnimator.start();
 
+        mostrarSplash();
+
         backButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -212,9 +222,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 dm.enqueue(request);
                 Toast.makeText(getApplicationContext(), "Descarregant fitxer", Toast.LENGTH_LONG).show();
-                cargando.setVisibility(View.GONE);
-                progressBar.setVisibility(View.GONE);
-                progressView.setVisibility(View.GONE);
+                ocultarSplash();
             }
         });
 
@@ -227,6 +235,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         webSettings.setTextZoom(90);
         webSettings.setAllowFileAccess(true);
         webSettings.setGeolocationEnabled(true);
+        mWebView.addJavascriptInterface(new PuenteQr(), "WiplayQr");
 
         CookieManager.getInstance().setAcceptCookie(true);
         if(android.os.Build.VERSION.SDK_INT >= 21) {
@@ -236,15 +245,19 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
-        Intent intent = getIntent();
-        String action = intent.getAction();
-        if (intent.getData() != null) {
-            // Si hemos interceptado alguna petición
-            mWebView.loadUrl(intent.getData().toString());
+        if (BuildConfig.DEBUG && !BuildConfig.PROXY_LOCAL.isEmpty()
+                && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            // Solo en debug con -PurlLocal: todo el trafico del WebView pasa por el proxy del
+            // Mac para llegar a *.localhost. removeImplicitRules hace que localhost tambien
+            // vaya por el proxy (por defecto Chromium nunca lo envia a un proxy).
+            ProxyConfig proxyConfig = new ProxyConfig.Builder()
+                    .addProxyRule(BuildConfig.PROXY_LOCAL)
+                    .removeImplicitRules()
+                    .build();
+            ProxyController.getInstance().setProxyOverride(proxyConfig, Runnable::run, this::cargarInicio);
+            Log.i("ProxyLocal", "WebView por el proxy " + BuildConfig.PROXY_LOCAL + " hacia " + URL);
         } else {
-            // Sino pintamos el acceso por defecto
-            System.out.println("Loading URL: " + this.URL);
-            mWebView.loadUrl(this.URL + "?app=true");
+            cargarInicio();
         }
 
         /**
@@ -277,6 +290,26 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             }
             startActivity(intent2);
         }
+    }
+
+    private void cargarInicio() {
+        Intent intent = getIntent();
+        if (intent.getData() != null) {
+            // Si hemos interceptado alguna petición
+            mWebView.loadUrl(intent.getData().toString());
+        } else {
+            // Sino pintamos el acceso por defecto. Si ya tenemos suscripcion de OneSignal se manda
+            // en cada arranque (no solo cuando cambia): asi el servidor la vuelve a asociar al
+            // usuario con sesion iniciada aunque otro dispositivo la haya sustituido.
+            System.out.println("Loading URL: " + this.URL);
+            mWebView.loadUrl(this.URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
+        }
+    }
+
+    private String parametrosSuscripcion() {
+        OSDeviceState estado = OneSignal.getDeviceState();
+        String userID = estado != null ? estado.getUserId() : null;
+        return userID == null ? "" : "&userID=" + userID + "&osApp=" + ONESIGNAL_ID;
     }
 
     @Override
@@ -348,6 +381,44 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         });
     }
 
+    // Capturas del QR del carnet: mientras la web lo tiene abierto (CarnetQr.start ... stop,
+    // en carnetQrRotatorio.jsp) la ventana lleva FLAG_SECURE, asi que no se puede hacer captura
+    // ni grabar la pantalla, y en "recientes" sale en negro. Fuera del QR las capturas siguen
+    // funcionando. Se engancha desde la app envolviendo CarnetQr, sin tocar la web; si la web
+    // define CarnetQr despues de cargar (contenido por ajax), el setter lo envuelve al llegar.
+    private static final String JS_ENGANCHE_QR =
+            "(function () {" +
+            "  if (window.__wiplayQr) return; window.__wiplayQr = true;" +
+            "  function envolver(qr) {" +
+            "    if (!qr || qr.__wiplay) return qr;" +
+            "    var start = qr.start, stop = qr.stop;" +
+            "    qr.start = function () { try { WiplayQr.visible(true); } catch (e) {} return start.apply(this, arguments); };" +
+            "    qr.stop = function () { try { WiplayQr.visible(false); } catch (e) {} return stop.apply(this, arguments); };" +
+            "    qr.__wiplay = true; return qr;" +
+            "  }" +
+            "  var actual = envolver(window.CarnetQr);" +
+            "  try {" +
+            "    Object.defineProperty(window, 'CarnetQr', { configurable: true," +
+            "      get: function () { return actual; }," +
+            "      set: function (v) { actual = envolver(v); } });" +
+            "  } catch (e) {}" +
+            "})();";
+
+    private class PuenteQr {
+        @JavascriptInterface
+        public void visible(boolean visible) {
+            runOnUiThread(() -> protegerPantalla(visible));
+        }
+    }
+
+    private void protegerPantalla(boolean proteger) {
+        if (proteger) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
+    }
+
     private void configLoader() {
         Log.d("Config", "CCM - Config");
         mWebView.setWebChromeClient(new WebChromeClient() {
@@ -364,29 +435,14 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
                                              FileChooserParams fileChooserParams) {
-                if (mFilePathCallback != null) {
-                    mFilePathCallback.onReceiveValue(null);
+                // Si quedaba una seleccion a medias hay que cerrarla: el WebView no vuelve a
+                // abrir el selector mientras tenga un callback sin responder.
+                if (mUploadMessage != null) {
+                    mUploadMessage.onReceiveValue(null);
                 }
-                mFilePathCallback = filePathCallback;
-
-                // Create a generic GET_CONTENT intent
-                // This allows the user to pick from Gallery, Photos, Downloads, or File Manager
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                intent.setType("image/*"); // Allows all image types
-
-                // If the website allows multiple files
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2
-                        && fileChooserParams.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
-                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                }
-
-                try {
-                    startActivityForResult(Intent.createChooser(intent, "Select Picture"), REQUEST_CODE_FILE_PICKER);
-                } catch (ActivityNotFoundException e) {
-                    mFilePathCallback = null;
-                    return false;
-                }
+                mUploadMessage = filePathCallback;
+                mFileChooserParams = fileChooserParams;
+                openFileExplorer();
                 return true;
             }
 
@@ -401,38 +457,43 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         mWebView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                cargando.setVisibility(View.VISIBLE);
-                progressBar.setVisibility(View.VISIBLE);
-                progressView.setVisibility(View.VISIBLE);
-                Uri uri = request.getUrl();
+                return manejarUrl(request.getUrl());
+            }
+
+            // Android 5 y 6 (minSdk 21) solo llaman a esta version: sin ella, los tel:, mailto:
+            // y whatsapp: no se abrian en esos moviles.
+            @Override
+            @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return manejarUrl(Uri.parse(url));
+            }
+
+            private boolean manejarUrl(Uri uri) {
                 String url = uri.toString();
-                //Log
-                Log.i("UrlLoading","uri " + uri + " url " + url);
+                Log.i("UrlLoading", "url " + url);
 
                 if (url.startsWith("https://accounts.google.com")) {
                     return false;
                 } else if (url.startsWith("http:") || url.startsWith("https:")) {
                     return false;
-                } else if (url.startsWith("whatsapp://")) { // Handle whatsapp:// links robustly
-                        // Try to extract text param if present and redirect to wa.me
-                        String text = uri.getQueryParameter("text");
-                        if (text == null) text = "";  // avoid nulls
-
-                        Uri wa = Uri.parse("https://wa.me/?text=" + Uri.encode(text));
-
-                        Intent i = new Intent(Intent.ACTION_VIEW, wa);
-                        try {
-                            startActivity(i);
-                        } catch (Exception e) {
-                            Toast.makeText(getApplicationContext(), "Unable to open WhatsApp share.", Toast.LENGTH_LONG).show();
-                        }
-                        return true;
+                } else if (url.startsWith("whatsapp://")) {
+                    // Se redirige a wa.me: funciona tenga o no WhatsApp instalado. Se conserva el
+                    // telefono (whatsapp://send?phone=...&text=...): sin el, WhatsApp se abria sin
+                    // destinatario, p. ej. en "contactar con el club".
+                    String text = uri.getQueryParameter("text");
+                    String phone = uri.getQueryParameter("phone");
+                    String digitos = phone != null ? phone.replaceAll("[^0-9]", "") : "";
+                    Uri wa = Uri.parse("https://wa.me/" + digitos
+                            + (text != null ? "?text=" + Uri.encode(text) : ""));
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, wa));
+                    } catch (Exception e) {
+                        Toast.makeText(getApplicationContext(), "Unable to open WhatsApp share.", Toast.LENGTH_LONG).show();
                     }
 
                 // Otherwise allow the OS to handle things like tel, mailto, etc.
                 try {
-                    // Otherwise allow the OS to handle things like tel, mailto, etc.
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
                     startActivity(intent);
                 } catch (Exception e) {
                     Log.e("WebView", "Unexpected error occurred while handling URL: " + url, e);
@@ -442,94 +503,166 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             }
 
             @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // El servidor local usa un certificado de mkcert, que Android no reconoce. Solo
+                // se acepta en debug y para *.localhost; en release se rechaza como siempre.
+                String host = Uri.parse(error.getUrl()).getHost();
+                if (BuildConfig.DEBUG && host != null && host.endsWith(".localhost")) {
+                    handler.proceed();
+                } else {
+                    super.onReceivedSslError(view, handler, error);
+                }
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                // Al cambiar de pagina el QR deja de verse aunque la web no llamara a stop()
+                protegerPantalla(false);
 
                 // Verifica si la URL no pertenece a tu dominio
-                if (!url.contains(DOMAIN)) {
+                if (!esDominioPropio(url)) {
                     backButton.setVisibility(View.VISIBLE);
-                    cargando.setVisibility(View.GONE);
-                    progressBar.setVisibility(View.GONE);
-                    progressView.setVisibility(View.GONE);
+                    ocultarSplash();
                 } else {
                     backButton.setVisibility(View.GONE);
+                    mostrarSplash();
                 }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                cargando.setVisibility(View.GONE);
-                progressBar.setVisibility(View.GONE);
-                progressView.setVisibility(View.GONE);
+                ocultarSplash();
                 paginaCargada = true;
+                if (esDominioPropio(url)) {
+                    view.evaluateJavascript(JS_ENGANCHE_QR, null);
+                }
 
                 if (locationTemporal != null) {
                     sendLocationToWebView(locationTemporal.getLatitude(), locationTemporal.getLongitude());
                 }
 
                 // Verifica si la URL no pertenece a tu dominio
-                if (!url.contains(DOMAIN)) {
+                if (!esDominioPropio(url)) {
                     backButton.setVisibility(View.VISIBLE);
                 } else {
                     backButton.setVisibility(View.GONE);
                 }
             }
-        });
-    }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == REQUEST_CODE_FILE_PICKER) {
-            if (mFilePathCallback == null) return;
-
-            Uri[] results = null;
-
-            // Check if the response is valid
-            if (resultCode == Activity.RESULT_OK) {
-                if (data != null) {
-                    String dataString = data.getDataString();
-                    ClipData clipData = data.getClipData();
-
-                    if (clipData != null) {
-                        results = new Uri[clipData.getItemCount()];
-                        for (int i = 0; i < clipData.getItemCount(); i++) {
-                            results[i] = clipData.getItemAt(i).getUri();
-                        }
-                    } else if (dataString != null) {
-                        results = new Uri[]{Uri.parse(dataString)};
-                    }
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                // Solo ocultar el splash si el error es del frame principal (no de recursos embebidos)
+                if (request.isForMainFrame()) {
+                    Log.e("WebView", "Error cargando página principal: " + error.getDescription());
+                    ocultarSplash();
                 }
             }
 
-            // Send the result to the WebView
-            mFilePathCallback.onReceiveValue(results);
-            mFilePathCallback = null; // Reset it
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+                super.onReceivedHttpError(view, request, errorResponse);
+                if (request.isForMainFrame()) {
+                    Log.e("WebView", "HTTP error en página principal: " + errorResponse.getStatusCode());
+                    ocultarSplash();
+                }
+            }
+        });
+
+        // Timeout de seguridad: si en 30 segundos no carga, ocultar el splash
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!paginaCargada) {
+                    Log.w("WebView", "Timeout: ocultando splash tras 30 segundos sin respuesta");
+                    ocultarSplash();
+                }
+            }
+        }, 30000);
+    }
+
+    // Una pagina es "de la app" si su host es el dominio de la app o un subdominio del mismo
+    // dominio raiz: en Wiplay (webapp.wiplay.app) los clubes abren como bfcastellet.wiplay.app y
+    // no deben mostrar el boton "Atras" de web externa. Antes se miraba url.contains(DOMAIN).
+    private boolean esDominioPropio(String url) {
+        String host = url != null ? Uri.parse(url).getHost() : null;
+        if (host == null || DOMAIN == null) return false;
+        String[] partes = DOMAIN.split("\\.");
+        String raiz = partes.length >= 2
+                ? partes[partes.length - 2] + "." + partes[partes.length - 1]
+                : DOMAIN;
+        return host.equals(raiz) || host.endsWith("." + raiz);
+    }
+
+    // Si el flavor usa un GIF como logo_splash (res/values/splash.xml) se anima con Glide y no
+    // se muestra la barra de progreso; si no, el logo estatico con la barra como siempre.
+    private boolean splashAnimado() {
+        return getResources().getBoolean(R.bool.splash_animado);
+    }
+
+    private void mostrarSplash() {
+        progressView.setVisibility(View.VISIBLE);
+        cargando.setVisibility(View.VISIBLE);
+        if (splashAnimado()) {
+            progressBar.setVisibility(View.GONE);
+            Glide.with(this)
+                    .asGif()
+                    .load(R.drawable.logo_splash)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                    .into(cargando);
+        } else {
+            progressBar.setVisibility(View.VISIBLE);
         }
     }
 
+    private void ocultarSplash() {
+        cargando.setVisibility(View.GONE);
+        progressBar.setVisibility(View.GONE);
+        progressView.setVisibility(View.GONE);
+        if (splashAnimado()) {
+            Glide.with(this).clear(cargando);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        super.onActivityResult(requestCode, resultCode, intent);
+        if (requestCode == FILECHOOSER_RESULTCODE) {
+            if (null == mUploadMessage) return;
+            // parseResult entiende tanto una seleccion simple (getData) como multiple (ClipData)
+            mUploadMessage.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, intent));
+            mUploadMessage = null;
+            mFileChooserParams = null;
+        }
+    }
+
+    // Antes se pedia READ_EXTERNAL_STORAGE y solo se abria el selector si se concedia. Desde
+    // Android 13 ese permiso ya no existe para apps con target 33+: el sistema lo deniega sin
+    // preguntar, el selector no se abria nunca y el callback se quedaba sin responder (el
+    // modal de la foto de perfil se cerraba sin hacer nada). El selector del sistema no
+    // necesita ningun permiso: devuelve un content:// al que ya tenemos acceso.
     private void openFileExplorer() {
-        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("image/*");
-        MainActivity.this.startActivityForResult(Intent.createChooser(i, "File Chooser"), MainActivity.FILECHOOSER_RESULTCODE);
-    }
-
-    private void requestStoragePermission() {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            openFileExplorer();
-            return;
+        Intent i;
+        if (mFileChooserParams != null) {
+            // Respeta el accept="" y el multiple del <input type="file"> de la web
+            i = mFileChooserParams.createIntent();
+        } else {
+            i = new Intent(Intent.ACTION_GET_CONTENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("image/*");
         }
-
-        if (ActivityCompat.shouldShowRequestPermissionRationale(this, android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
-            //If the user has denied the permission previously your code will come to this block
-            //Here you can explain why you need this permission
-            //Explain here why you need this permission
+        try {
+            startActivityForResult(Intent.createChooser(i, "Selecciona un archivo"), FILECHOOSER_RESULTCODE);
+        } catch (ActivityNotFoundException e) {
+            Log.e("FileChooser", "No hay ninguna app para elegir archivos", e);
+            if (mUploadMessage != null) {
+                mUploadMessage.onReceiveValue(null);
+                mUploadMessage = null;
+            }
+            Toast.makeText(this, "No se ha encontrado ninguna app para elegir archivos", Toast.LENGTH_LONG).show();
         }
-        //And finally ask for the permission
-        ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE}, STORAGE_PERMISSION_CODE);
     }
 
     @Override
@@ -537,13 +670,21 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         Intent intent = getIntent();
         String action = intent.getAction();
         String userID = stateChanges.getTo().getUserId();
+        if (userID == null) {
+            // OneSignal avisa primero sin suscripcion todavia: no hay nada que asociar y
+            // recargar la web con userID=null solo le haria guardar un valor vacio.
+            return;
+        }
         if (intent.getData() != null) {
             // Si hemos interceptado alguna petición
             mWebView.loadUrl(intent.getData().toString());
         } else {
             // Sino pintamos el acceso por defecto
-            System.out.println("Asociando app: " + userID);
-            mWebView.loadUrl(URL + "?app=true&userID=" + userID);
+            // osApp: la app de OneSignal a la que pertenece la suscripcion. Un mismo usuario puede
+            // tener la app de Wiplay y la de su club, cada una con su propio OneSignal, y el
+            // servidor necesita saber con que app_id enviarle a cada suscripcion.
+            System.out.println("Asociando app: " + userID + " (OneSignal " + ONESIGNAL_ID + ")");
+            mWebView.loadUrl(URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
         }
     }
 }

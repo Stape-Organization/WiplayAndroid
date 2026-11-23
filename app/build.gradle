@@ -2,23 +2,71 @@ plugins {
     id 'com.android.application'
 }
 
+// Credenciales de firma FUERA del repositorio, y UNA POR FLAVOR: cada app esta publicada
+// con su propio keystore (Evenpadel va con "stapeKey", Wiplay con "wiplay", etc.), asi que
+// firmarlas todas con la misma clave hace que Google Play rechace el bundle.
+//
+// Se resuelve en este orden, de mas concreto a mas generico:
+//   1. keystore.properties -> "<flavor>.storeFile", "<flavor>.storePassword", ...
+//   2. variables de entorno -> "<FLAVOR>_KEYSTORE_FILE", "<FLAVOR>_KEYSTORE_PASSWORD", ...
+//   3. keystore.properties -> "storeFile", "storePassword", ...        (fallback comun)
+//   4. variables de entorno -> "KEYSTORE_FILE", "KEYSTORE_PASSWORD", ... (fallback comun)
+//
+// Si un flavor no tiene keystore disponible no se le asigna firma: el debug usa la clave de
+// depuracion por defecto de Android y el release sale sin firmar, en vez de romper el build.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+ext.FLAVORS_CON_FIRMA = ['totpadel', 'wiplaypadel', 'indoorpadel7', 'summapadel', 'pickleball', 'evenpadel', 'basicfactory', 'local']
+
+ext.datosFirma = { String flavor ->
+    def buscar = { String propiedad, String variable ->
+        keystoreProperties["${flavor}.${propiedad}"] ?:
+                System.getenv("${flavor.toUpperCase()}_${variable}") ?:
+                        keystoreProperties[propiedad] ?:
+                                System.getenv(variable)
+    }
+    [
+            storeFile    : buscar('storeFile', 'KEYSTORE_FILE'),
+            storePassword: buscar('storePassword', 'KEYSTORE_PASSWORD'),
+            keyAlias     : buscar('keyAlias', 'KEY_ALIAS'),
+            keyPassword  : buscar('keyPassword', 'KEY_PASSWORD')
+    ]
+}
+
+ext.hayFirmaPara = { String flavor ->
+    def d = datosFirma(flavor)
+    d.storeFile != null && file(d.storeFile).exists()
+}
+
 android {
 
     signingConfigs {
-        totpadel {
-            storeFile file('/Users/edgarcasals/Documents/Keystores/totpadel')
-            storePassword 'Ccm_0123456789'
-            keyAlias 'wiplay'
-            keyPassword 'Ccm_0123456789'
+        FLAVORS_CON_FIRMA.each { flavor ->
+            if (hayFirmaPara(flavor)) {
+                def d = datosFirma(flavor)
+                create(flavor) {
+                    storeFile file(d.storeFile)
+                    storePassword d.storePassword
+                    keyAlias d.keyAlias
+                    keyPassword d.keyPassword
+                }
+                logger.lifecycle("Firma configurada para el flavor ${flavor} (${d.keyAlias})")
+            } else {
+                logger.warn("AVISO: sin keystore para el flavor ${flavor}: se compilara sin firmar")
+            }
         }
     }
     namespace 'com.wiplay.wiplayandroid'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.wiplay.wiplayandroid"
         minSdk 21
-        setTargetSdk(35)
+        setTargetSdk(36)
         versionCode 1
         versionName "1.0"
 
@@ -29,9 +77,11 @@ android {
     productFlavors {
         totpadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("totpadel")
             applicationId "totpadel.cat.totpadel"
-            versionName "1.0"
-            versionCode 102
+            //En produccion esta la 102 (1.0, oct 2025), compilada sin subir el numero al repo
+            versionName "1.1"
+            versionCode 103
             resValue "string", "app_name", "Totpadel"
             resValue "string", "app_url", "https://totpadel.cat"
             resValue "string", "app_intent", "totpadel.cat"
@@ -41,18 +91,21 @@ android {
         }
         wiplaypadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("wiplaypadel")
             applicationId "es.stape.wiplaypadel"
-            versionName "1.2"
-            versionCode 103
-            resValue "string", "app_name", "Wiplay Padel"
-            resValue "string", "app_url", "https://webapp.wiplaypadel.com"
-            resValue "string", "app_intent", "webapp.wiplaypadel.com"
+            //En produccion estaba la 104 (1.2, mayo 2026). Firma: stapeKey, como Evenpadel
+            versionName "1.3"
+            versionCode 105
+            resValue "string", "app_name", "Wiplay"
+            resValue "string", "app_url", "https://webapp.wiplay.app"
+            resValue "string", "app_intent", "webapp.wiplay.app"
             resValue "string", "app_onesignal_id", "d9dc81ca-1d43-4d97-a735-58ccef58940b"
             resValue "string", "principal_color", "#252525"
             resValue "string", "secondary_color", "#EAF02C"
         }
         indoorpadel7 {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("indoorpadel7")
             applicationId "es.stape.indoorpadel7"
             versionName "2.0"
             versionCode 2
@@ -66,6 +119,7 @@ android {
 
         summapadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("summapadel")
             applicationId "es.stape.easypadel.summapadel"
             versionName "2.0"
             versionCode 2
@@ -79,6 +133,7 @@ android {
 
         pickleball {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("pickleball")
             applicationId "es.stape.easypadel.pickleball"
             versionName "2"
             versionCode 2
@@ -92,10 +147,12 @@ android {
 
         evenpadel {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("evenpadel")
             applicationId "es.stape.evenpadel"
-            versionCode 1
-            versionName "1.1"
-            resValue "string", "app_name", "Even Padel Tour"
+            //En produccion la 6 (2.2, sep 2026). La 7 (2.2.1, como iOS) cambia el nombre visible a SIUX EVEN PADEL
+            versionCode 7
+            versionName "2.2.1"
+            resValue "string", "app_name", "SIUX EVEN PADEL"
             resValue "string", "app_url", "https://evenpadel.com/"
             resValue "string", "app_intent", "evenpadel.com"
             resValue "string", "app_onesignal_id", "2b7ea747-afe5-42d5-91ac-710e4abe3031"
@@ -103,8 +160,22 @@ android {
             resValue "string", "secondary_color", "#EAF02C"
         }
 
+        basicfactory {
+            dimension "versionType"
+            signingConfig signingConfigs.findByName("basicfactory")
+            applicationId "es.stape.basicfactory"
+            versionCode 2
+            versionName "1.0"
+            resValue "string", "app_name", "Basic Factory"
+            resValue "string", "app_url", "https://bfcastellet.wiplay.app"
+            resValue "string", "app_intent", "bfcastellet.wiplay.app"
+            resValue "string", "app_onesignal_id", "9e3c4477-ad03-4052-ba7a-f886a47d1f1a"
+            resValue "string", "principal_color", "#000000"
+            resValue "string", "secondary_color", "#FABE68"
+        }
         local {
             dimension "versionType"
+            signingConfig signingConfigs.findByName("local")
             applicationId "com.wiplay.wiplayandroid.v2"
             versionName "1.0"
             resValue "string", "app_name", "Localhost"
@@ -116,11 +187,32 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig true
+    }
+
     buildTypes {
+        // Pruebas contra el servidor local del Mac (p. ej. https://bfcastellet.localhost):
+        //   ./gradlew installBasicfactoryDebug -PurlLocal=https://bfcastellet.localhost
+        // El emulador no ve el localhost del Mac, asi que el WebView sale por un proxy que
+        // corre en el Mac (.github/scripts/proxy_local.py) al que se llega con
+        // "adb reverse tcp:8888 tcp:8888". Solo afecta al debug; el release no cambia.
+        debug {
+            def urlLocal = project.findProperty('urlLocal')
+            if (urlLocal) {
+                resValue "string", "app_url", urlLocal
+                resValue "string", "app_intent", new URI(urlLocal).host
+                buildConfigField "String", "PROXY_LOCAL", "\"${project.findProperty('proxyLocal') ?: '127.0.0.1:8888'}\""
+            } else {
+                buildConfigField "String", "PROXY_LOCAL", "\"\""
+            }
+        }
         release {
+            buildConfigField "String", "PROXY_LOCAL", "\"\""
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            //La firma la pone cada flavor (ver productFlavors): aqui no se fija ninguna,
+            //porque lo que se declare en el buildType tiene prioridad sobre la del flavor.
         }
     }
     compileOptions {
@@ -135,6 +227,11 @@ dependencies {
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'com.google.android.gms:play-services-location:18.0.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    // ProxyController para las pruebas en debug contra el servidor local
+    implementation 'androidx.webkit:webkit:1.12.1'
+    // GIF animado de la pantalla de carga
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
     dependencies {
         implementation 'com.onesignal:OneSignal:[4.0.0, 4.99.99]'
     }
