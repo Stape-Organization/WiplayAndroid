@@ -105,6 +105,8 @@ android {
             //En produccion estaba la 104 (1.2, mayo 2026). Firma: stapeKey, como Evenpadel
             versionName "1.4"
             versionCode 106
+            // Play exige minSdk 24 por la proteccion automatica activada en esta app
+            minSdk 24
             resValue "string", "app_name", "Wiplay"
             resValue "string", "app_url", "https://webapp.wiplay.app"
             resValue "string", "app_intent", "webapp.wiplay.app"
@@ -174,6 +176,8 @@ android {
             signingConfig signingConfigs.findByName("basicfactory")
             applicationId "es.stape.basicfactory"
             versionCode 3
+            // Play exige minSdk 24 por la proteccion automatica activada en esta app
+            minSdk 24
             versionName "1.1"
             resValue "string", "app_name", "Basic Factory"
             resValue "string", "app_url", "https://bfcastellet.wiplay.app"
