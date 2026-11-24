@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "23483915286",
+    "project_id": "wiplaypadel",
+    "storage_bucket": "wiplaypadel.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:23483915286:android:a569cf9a1baf6440a0a937",
+        "android_client_info": {
+          "package_name": "es.stape.wiplaypadel"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "23483915286-cp2d1evi9p4kvpvbqcg1ftde0ao44cug.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpoeyoXVdXxUhYNCXx19dqXsBZGoqbexg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "23483915286-cp2d1evi9p4kvpvbqcg1ftde0ao44cug.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "23483915286-m8s1e0cojqk0mcr3rh6vn63dt4mj89kf.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "es.stape.wiplaypadel"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

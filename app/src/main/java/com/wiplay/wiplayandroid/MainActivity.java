@@ -1,5 +1,6 @@
 package com.wiplay.wiplayandroid;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -61,15 +62,13 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 
-import com.onesignal.OSDeviceState;
-import com.onesignal.OSSubscriptionObserver;
-import com.onesignal.OSSubscriptionStateChanges;
-import com.onesignal.OneSignal;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
 import androidx.webkit.WebViewFeature;
 import androidx.webkit.ProxyController;
 import androidx.webkit.ProxyConfig;
 
-public class MainActivity extends AppCompatActivity implements OSSubscriptionObserver {
+public class MainActivity extends AppCompatActivity {
     private WebView mWebView;
     private ImageView cargando;
     private ProgressBar progressBar;
@@ -79,6 +78,7 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
     private ValueCallback<Uri[]> mUploadMessage;
     private WebChromeClient.FileChooserParams mFileChooserParams;
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
+    private static final String PERMISO_NOTIFICACIONES = "android.permission.POST_NOTIFICATIONS";
     private final static int FILECHOOSER_RESULTCODE=1;
 
     // This is the callback that tells the WebView which file was selected
@@ -88,7 +88,15 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
     private final static int REQUEST_CODE_FILE_PICKER = 1001;
 
     private String URL;
+    // Identificador de la app en el backend (parametro osApp). Es el app id de OneSignal que
+    // tenia cada flavor: se conserva aunque el push ya vaya por Firebase directamente.
     private String ONESIGNAL_ID;
+
+    // MainActivity visible: PushService le avisa cuando Firebase cambia el token
+    static MainActivity activa;
+
+    // Estado del WebView guardado antes de que Android cerrara la activity (ver onSaveInstanceState)
+    private Bundle estadoGuardado;
 
     private String DOMAIN;
 
@@ -117,21 +125,47 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         }
     };
 
-    @Override
-    public void onBackPressed() {
-        mWebView.evaluateJavascript("javascript:tabBack()", new ValueCallback<String>() {
-            @Override
-            public void onReceiveValue(String value) {
-                System.out.println("onReceiveValue - " + value);
-                if (value == null || value.equals("null")) {
-                    // Si hubo un error o la función no existe, hacer goBack
-                    if (mWebView.canGoBack()) {
-                        mWebView.goBack();
-                    } else {
-                        //Evitar que se cierra la app al apretár atrás
-                        //MainActivity.super.onBackPressed();
-                    }
-                }
+    // Boton atras. Va por OnBackPressedDispatcher: con targetSdk 36, Android 16 ya no llama a
+    // onBackPressed() y el atras cerraba la app.
+    //  - En una pagina de fuera (popup, PDF, pasarela, web externa) se vuelve atras en el
+    //    historial del WebView, o a la web si no hay historial.
+    //  - En la web propia primero se cierra el modal abierto y, si no hay, se usa tabBack() de
+    //    la web. tabBack() no devuelve nada: antes eso se tomaba como "no existe" y ademas se
+    //    hacia goBack(), con lo que cada pulsacion retrocedia dos veces y acababa en otro sitio.
+    //  - Sin historial de pestanas, pero con historial del WebView, se hace goBack().
+    // La app no se cierra nunca con el boton atras (comportamiento de siempre).
+    private static final String JS_ATRAS =
+            "(function (historial) {" +
+            "  try {" +
+            "    var $ = window.jQuery;" +
+            "    if (window.Swal && Swal.isVisible && Swal.isVisible()) { Swal.close(); return 'modal'; }" +
+            "    if ($) {" +
+            "      var m = $('.modal.show, .modal.in').last();" +
+            "      if (m.length && m.modal) { m.modal('hide'); return 'modal'; }" +
+            "    }" +
+            "  } catch (e) {}" +
+            "  if (typeof tabBack !== 'function') return 'historial';" +
+            "  if (historial && (typeof tabHistory === 'undefined' || tabHistory.length === 0)) return 'historial';" +
+            "  tabBack(); return 'tab';" +
+            "})(%s)";
+
+    private void atras() {
+        if (mWebView == null) {
+            return;
+        }
+        String actual = mWebView.getUrl();
+        if (actual == null || !esDominioPropio(actual)) {
+            if (mWebView.canGoBack()) {
+                mWebView.goBack();
+            } else {
+                mWebView.loadUrl(URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
+            }
+            return;
+        }
+        boolean historial = mWebView.canGoBack();
+        mWebView.evaluateJavascript(String.format(JS_ATRAS, historial), valor -> {
+            if ("\"historial\"".equals(valor) && mWebView.canGoBack()) {
+                mWebView.goBack();
             }
         });
     }
@@ -147,7 +181,25 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             if (mWebView != null) {
                 mWebView.loadUrl(incomingUrl);
             }
+        } else if (urlDePush(intent) != null && mWebView != null) {
+            mWebView.loadUrl(urlDePush(intent));
         }
+    }
+
+    // Al pulsar un push el "url" llega en los extras: en segundo plano lo pone el sistema con
+    // los data del mensaje, en primer plano el PendingIntent que monta PushService.
+    private static String urlDePush(Intent intent) {
+        String url = intent != null ? intent.getStringExtra("url") : null;
+        return url != null && (url.startsWith("https://") || url.startsWith("http://")) ? url : null;
+    }
+
+    // Lo que hay que abrir si la app se ha lanzado desde un enlace o un push; null si no
+    private String urlEntrante() {
+        Intent intent = getIntent();
+        if (intent.getData() != null) {
+            return intent.getData().toString();
+        }
+        return urlDePush(intent);
     }
 
     @Override
@@ -168,17 +220,21 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         ONESIGNAL_ID = getString(R.string.app_onesignal_id);
 
         setContentView(R.layout.activity_main);
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                atras();
+            }
+        });
+        estadoGuardado = savedInstanceState;
 
         //ECM 09/01/2026
         //Intent desde fuera
         Log.i("DeepLink", "onCreate action=" + getIntent().getAction() + " data=" + getIntent().getData());
         handleIncomingDeepLink(getIntent());
 
-        // Incorporamos Push con OneSignal
-        OneSignal.setLogLevel(OneSignal.LOG_LEVEL.VERBOSE, OneSignal.LOG_LEVEL.NONE);
-        OneSignal.initWithContext(this);
-        OneSignal.setAppId(this.ONESIGNAL_ID);
-        OneSignal.addSubscriptionObserver(this);
+        PushService.crearCanal(this);
+        pedirTokenPush();
 
         mWebView = findViewById(R.id.webview);
         cargando = findViewById(R.id.logo);
@@ -264,17 +320,16 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
          * Configuración de la geolocalizacion
          */
         locationClient = LocationServices.getFusedLocationProviderClient(this);
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-        }
+        pedirPermisos();
         startLocationUpdates();
         handler.post(sendLocationRunnable);
         configLoader();
 
         /**
-         * Configuración de las notificaciones
+         * Configuración de las notificaciones. Desde Android 13 se piden con el permiso (en
+         * pedirPermisos); antes no hay permiso y, si estan desactivadas, se abren los ajustes.
          */
-        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+        if (Build.VERSION.SDK_INT < 33 && !NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             // Las notificaciones no están habilitadas, abrir la configuración de la aplicación
             Intent intent2 = new Intent();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -292,36 +347,127 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
         }
     }
 
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        // Si Android cierra la app mientras se esta en otra (camara, WhatsApp, un PDF...), al
+        // volver se recupera la pagina en la que estaba en lugar de empezar en la home.
+        if (mWebView != null) {
+            mWebView.saveState(outState);
+        }
+    }
+
     private void cargarInicio() {
-        Intent intent = getIntent();
-        if (intent.getData() != null) {
-            // Si hemos interceptado alguna petición
-            mWebView.loadUrl(intent.getData().toString());
+        if (estadoGuardado != null && urlEntrante() == null && mWebView.restoreState(estadoGuardado) != null) {
+            estadoGuardado = null;
+            return;
+        }
+        estadoGuardado = null;
+        String entrante = urlEntrante();
+        if (entrante != null) {
+            // Si hemos interceptado alguna petición o venimos de pulsar un push
+            mWebView.loadUrl(entrante);
         } else {
-            // Sino pintamos el acceso por defecto. Si ya tenemos suscripcion de OneSignal se manda
-            // en cada arranque (no solo cuando cambia): asi el servidor la vuelve a asociar al
-            // usuario con sesion iniciada aunque otro dispositivo la haya sustituido.
+            // Sino pintamos el acceso por defecto. Si ya tenemos token de push se manda en cada
+            // arranque (no solo cuando cambia): asi el servidor lo vuelve a asociar al usuario
+            // con sesion iniciada aunque otro dispositivo lo haya sustituido.
             System.out.println("Loading URL: " + this.URL);
             mWebView.loadUrl(this.URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
         }
     }
 
     private String parametrosSuscripcion() {
-        OSDeviceState estado = OneSignal.getDeviceState();
-        String userID = estado != null ? estado.getUserId() : null;
-        return userID == null ? "" : "&userID=" + userID + "&osApp=" + ONESIGNAL_ID;
+        String token = PushService.tokenGuardado(this);
+        if (token == null) {
+            return "";
+        }
+        // osApp identifica la app en el backend (un usuario puede tener la de Wiplay y la de su
+        // club) y pushApp es el paquete, para enviar con el proyecto de Firebase que toca.
+        return "&pushToken=" + Uri.encode(token) + "&pushPlatform=android"
+                + "&osApp=" + ONESIGNAL_ID + "&pushApp=" + getPackageName();
+    }
+
+    private void pedirTokenPush() {
+        if (FirebaseApp.getApps(this).isEmpty()) {
+            // Flavor compilado sin google-services.json: la app funciona igual, pero sin push
+            Log.w("Push", "Sin Firebase configurado para " + getPackageName() + ": no hay push");
+            return;
+        }
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(tarea -> {
+            if (!tarea.isSuccessful() || tarea.getResult() == null) {
+                Log.w("Push", "No se ha podido obtener el token de Firebase", tarea.getException());
+                return;
+            }
+            tokenRecibido(tarea.getResult());
+        });
+    }
+
+    // Token nuevo o distinto del guardado: se recarga la web para que el servidor lo asocie
+    // al usuario. Si la app se abrio con un enlace o un push se respeta esa pagina.
+    void tokenRecibido(String token) {
+        if (token.equals(PushService.tokenGuardado(this))) {
+            return;
+        }
+        PushService.guardarToken(this, token);
+        runOnUiThread(() -> {
+            if (mWebView == null) {
+                return;
+            }
+            String entrante = urlEntrante();
+            if (entrante != null) {
+                mWebView.loadUrl(entrante);
+            } else {
+                Log.i("Push", "Asociando token de push (app " + ONESIGNAL_ID + ")");
+                mWebView.loadUrl(URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
+            }
+        });
+    }
+
+    // Ubicacion y, desde Android 13, notificaciones, en una sola peticion: dos peticiones
+    // seguidas se pisan y la segunda no llega a mostrarse.
+    private void pedirPermisos() {
+        java.util.List<String> faltan = new java.util.ArrayList<>();
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            faltan.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && ContextCompat.checkSelfPermission(this, PERMISO_NOTIFICACIONES) != PackageManager.PERMISSION_GRANTED) {
+            faltan.add(PERMISO_NOTIFICACIONES);
+        }
+        if (!faltan.isEmpty()) {
+            ActivityCompat.requestPermissions(this, faltan.toArray(new String[0]), LOCATION_PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        activa = this;
+    }
+
+    @Override
+    protected void onPause() {
+        if (activa == this) {
+            activa = null;
+        }
+        super.onPause();
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
-            // Verifica si la solicitud de permisos fue concedida.
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                System.out.println("LOCATION_PERMISSION_REQUEST_CODE - ACEPTADO");
-                startLocationUpdates();
-            } else {
-                System.out.println("LOCATION_PERMISSION_REQUEST_CODE - DENEGADO");
+            // La peticion puede llevar tambien el de notificaciones: se busca el de ubicacion
+            for (int i = 0; i < permissions.length && i < grantResults.length; i++) {
+                if (!android.Manifest.permission.ACCESS_FINE_LOCATION.equals(permissions[i])) {
+                    continue;
+                }
+                if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    System.out.println("LOCATION_PERMISSION_REQUEST_CODE - ACEPTADO");
+                    startLocationUpdates();
+                } else {
+                    System.out.println("LOCATION_PERMISSION_REQUEST_CODE - DENEGADO");
+                }
             }
         }
     }
@@ -361,9 +507,9 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
             });
 
             LocationServices.getFusedLocationProviderClient(this).requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
-        } else {
-            ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
         }
+        // Sin permiso no se pide aqui: lo pide pedirPermisos() junto con el de notificaciones,
+        // y al concederlo se vuelve a llamar a este metodo.
     }
 
     private void stopLocationUpdates() {
@@ -468,14 +614,57 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 return manejarUrl(Uri.parse(url));
             }
 
+            private boolean abrirFuera(Uri uri) {
+                String host = uri.getHost();
+                if (host == null) {
+                    return false;
+                }
+                String ruta = uri.getPath() != null ? uri.getPath() : "";
+                return host.equals("wa.me") || host.equals("api.whatsapp.com")
+                        || host.equals("maps.google.com") || host.equals("maps.app.goo.gl")
+                        || host.equals("goo.gl") && ruta.startsWith("/maps")
+                        || host.endsWith("google.com") && ruta.startsWith("/maps")
+                        || host.equals("calendar.google.com")
+                        || host.equals("play.google.com") || host.equals("apps.apple.com");
+            }
+
             private boolean manejarUrl(Uri uri) {
                 String url = uri.toString();
                 Log.i("UrlLoading", "url " + url);
 
                 if (url.startsWith("https://accounts.google.com")) {
                     return false;
+                } else if (abrirFuera(uri)) {
+                    // WhatsApp, Maps, Calendar...: se abren en su app. Si se cargaban aqui el
+                    // WebView se quedaba en una pagina en blanco o de la otra app.
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                        return true;
+                    } catch (ActivityNotFoundException e) {
+                        return false;
+                    }
                 } else if (url.startsWith("http:") || url.startsWith("https:")) {
                     return false;
+                } else if (url.startsWith("intent:")) {
+                    // Enlaces intent:// (Maps, apps de pago...): se abre la app y, si no esta
+                    // instalada, la web alternativa que trae el enlace.
+                    try {
+                        Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                        intent.setComponent(null);
+                        intent.setSelector(null);
+                        try {
+                            startActivity(intent);
+                        } catch (ActivityNotFoundException e) {
+                            String alternativa = intent.getStringExtra("browser_fallback_url");
+                            if (alternativa != null) {
+                                mWebView.loadUrl(alternativa);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e("WebView", "Enlace intent no valido: " + url, e);
+                    }
+                    return true;
                 } else if (url.startsWith("whatsapp://")) {
                     // Se redirige a wa.me: funciona tenga o no WhatsApp instalado. Se conserva el
                     // telefono (whatsapp://send?phone=...&text=...): sin el, WhatsApp se abria sin
@@ -490,6 +679,8 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                     } catch (Exception e) {
                         Toast.makeText(getApplicationContext(), "Unable to open WhatsApp share.", Toast.LENGTH_LONG).show();
                     }
+                    return true;
+                }
 
                 // Otherwise allow the OS to handle things like tel, mailto, etc.
                 try {
@@ -662,29 +853,6 @@ public class MainActivity extends AppCompatActivity implements OSSubscriptionObs
                 mUploadMessage = null;
             }
             Toast.makeText(this, "No se ha encontrado ninguna app para elegir archivos", Toast.LENGTH_LONG).show();
-        }
-    }
-
-    @Override
-    public void onOSSubscriptionChanged(OSSubscriptionStateChanges stateChanges) {
-        Intent intent = getIntent();
-        String action = intent.getAction();
-        String userID = stateChanges.getTo().getUserId();
-        if (userID == null) {
-            // OneSignal avisa primero sin suscripcion todavia: no hay nada que asociar y
-            // recargar la web con userID=null solo le haria guardar un valor vacio.
-            return;
-        }
-        if (intent.getData() != null) {
-            // Si hemos interceptado alguna petición
-            mWebView.loadUrl(intent.getData().toString());
-        } else {
-            // Sino pintamos el acceso por defecto
-            // osApp: la app de OneSignal a la que pertenece la suscripcion. Un mismo usuario puede
-            // tener la app de Wiplay y la de su club, cada una con su propio OneSignal, y el
-            // servidor necesita saber con que app_id enviarle a cada suscripcion.
-            System.out.println("Asociando app: " + userID + " (OneSignal " + ONESIGNAL_ID + ")");
-            mWebView.loadUrl(URL + "?app=true&version=" + BuildConfig.VERSION_NAME + parametrosSuscripcion());
         }
     }
 }

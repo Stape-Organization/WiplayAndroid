@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "288863828424",
+    "project_id": "modular-edge-278204",
+    "storage_bucket": "modular-edge-278204.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:288863828424:android:849a2e9cb1da30c19ae8fd",
+        "android_client_info": {
+          "package_name": "es.stape.easypadel.summapadel"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuddlhwtz-NBux0mfZzyKdY68LW0MR_l8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:288863828424:android:00aa9fbf2ea77eee9ae8fd",
+        "android_client_info": {
+          "package_name": "totpadel.cat.totpadel"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuddlhwtz-NBux0mfZzyKdY68LW0MR_l8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Nombre del canal de notificaciones en los ajustes del movil -->
+    <string name="canal_notificaciones">Avisos</string>
+</resources>

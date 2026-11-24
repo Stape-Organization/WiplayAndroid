@@ -1,5 +1,14 @@
 plugins {
     id 'com.android.application'
+    // Push por Firebase: cada flavor lleva su src/<flavor>/google-services.json, del mismo
+    // proyecto de Firebase que tenia configurado su app de OneSignal
+    id 'com.google.gms.google-services'
+}
+
+// Un flavor sin google-services.json compila igual (con aviso) y la app funciona sin push,
+// en vez de romper el build de todos
+googleServices {
+    missingGoogleServicesStrategy = com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy.WARN
 }
 
 // Credenciales de firma FUERA del repositorio, y UNA POR FLAVOR: cada app esta publicada
@@ -80,8 +89,8 @@ android {
             signingConfig signingConfigs.findByName("totpadel")
             applicationId "totpadel.cat.totpadel"
             //En produccion esta la 102 (1.0, oct 2025), compilada sin subir el numero al repo
-            versionName "1.1"
-            versionCode 103
+            versionName "1.2"
+            versionCode 104
             resValue "string", "app_name", "Totpadel"
             resValue "string", "app_url", "https://totpadel.cat"
             resValue "string", "app_intent", "totpadel.cat"
@@ -94,8 +103,8 @@ android {
             signingConfig signingConfigs.findByName("wiplaypadel")
             applicationId "es.stape.wiplaypadel"
             //En produccion estaba la 104 (1.2, mayo 2026). Firma: stapeKey, como Evenpadel
-            versionName "1.3"
-            versionCode 105
+            versionName "1.4"
+            versionCode 106
             resValue "string", "app_name", "Wiplay"
             resValue "string", "app_url", "https://webapp.wiplay.app"
             resValue "string", "app_intent", "webapp.wiplay.app"
@@ -164,8 +173,8 @@ android {
             dimension "versionType"
             signingConfig signingConfigs.findByName("basicfactory")
             applicationId "es.stape.basicfactory"
-            versionCode 2
-            versionName "1.0"
+            versionCode 3
+            versionName "1.1"
             resValue "string", "app_name", "Basic Factory"
             resValue "string", "app_url", "https://bfcastellet.wiplay.app"
             resValue "string", "app_intent", "bfcastellet.wiplay.app"
@@ -232,9 +241,9 @@ dependencies {
     // GIF animado de la pantalla de carga
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
-    dependencies {
-        implementation 'com.onesignal:OneSignal:[4.0.0, 4.99.99]'
-    }
+    // Push. La BoM 33 es la ultima que admite minSdk 21
+    implementation platform('com.google.firebase:firebase-bom:33.16.0')
+    implementation 'com.google.firebase:firebase-messaging'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'

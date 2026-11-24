@@ -10,7 +10,11 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        <!-- singleTask: un enlace o un push abre la app que ya estaba abierta (llega por
+             onNewIntent) en vez de una segunda copia dentro de la app desde la que se pulso,
+             que al cerrarla dejaba al usuario fuera de donde estaba. -->
         <activity android:name="com.wiplay.wiplayandroid.MainActivity"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize"
             android:exported="true">
             <intent-filter>
@@ -26,6 +30,22 @@
                     android:pathPrefix="/" />
             </intent-filter>
         </activity>
+
+        <!-- Push por Firebase (antes OneSignal) -->
+        <service
+            android:name="com.wiplay.wiplayandroid.PushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Para los push que pinta el sistema con la app en segundo plano -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notificacion" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="avisos" />
     </application>
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -33,6 +53,8 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Android 13+: mostrar notificaciones (antes lo declaraba el SDK de OneSignal) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- PERMISOS PARA LA LOCALIZACIÓN -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
