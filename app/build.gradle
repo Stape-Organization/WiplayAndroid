@@ -29,7 +29,7 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
-ext.FLAVORS_CON_FIRMA = ['totpadel', 'wiplaypadel', 'indoorpadel7', 'summapadel', 'pickleball', 'evenpadel', 'basicfactory', 'local']
+ext.FLAVORS_CON_FIRMA = ['totpadel', 'wiplaypadel', 'indoorpadel7', 'summapadel', 'pickleball', 'evenpadel', 'basicfactory', 'urifit', 'local']
 
 ext.datosFirma = { String flavor ->
     def buscar = { String propiedad, String variable ->
@@ -185,6 +185,21 @@ android {
             resValue "string", "app_onesignal_id", "9e3c4477-ad03-4052-ba7a-f886a47d1f1a"
             resValue "string", "principal_color", "#000000"
             resValue "string", "secondary_color", "#FABE68"
+        }
+        urifit {
+            dimension "versionType"
+            signingConfig signingConfigs.findByName("urifit")
+            applicationId "es.stape.urifit"
+            // Play exige minSdk 24 si la app tiene activada la proteccion automatica
+            minSdk 24
+            versionCode 1
+            versionName "1.0"
+            resValue "string", "app_name", "URI FIT"
+            resValue "string", "app_url", "https://urifit.com"
+            resValue "string", "app_intent", "urifit.com"
+            resValue "string", "app_onesignal_id", ""
+            resValue "string", "principal_color", "#000000"
+            resValue "string", "secondary_color", "#F26F57"
         }
         local {
             dimension "versionType"

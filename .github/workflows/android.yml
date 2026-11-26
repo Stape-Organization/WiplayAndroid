@@ -21,6 +21,7 @@ on:
           - indoorpadel7
           - pickleball
           - basicfactory
+          - urifit
       subir_a_play:
         description: "Subir el AAB al canal de pruebas internas de Google Play"
         type: boolean
